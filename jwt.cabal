@@ -1,0 +1,55 @@
+Name:               jwt
+Version:            0.1
+Synopsis:           JWT library
+Description:
+  Support for processing JSON Web Tokens as defined by
+  http://tools.ietf.org/html/draft-ietf-oauth-json-web-token-06
+Author:             Luke Taylor
+License:            BSD3
+Build-Type:         Simple
+Cabal-Version:      >= 1.8
+
+Library
+  Exposed-modules:  Data.Jwt,
+                    Data.Jwt.Crypto
+  Other-Modules:    Data.Jwt.Internal,
+                    Data.Jwt.Types
+  Build-Depends:    base >= 4,
+                    mtl >= 2.1,
+--                    ghc-prim >= 0.2,
+                    bytestring >= 0.9,
+                    cereal >= 0.4,
+                    containers >= 0.4,
+                    cryptohash >= 0.8,
+                    crypto-cipher-types,
+                    crypto-pubkey >= 0.1.2,
+                    crypto-random,
+                    cipher-aes >= 0.2.6,
+                    aeson >= 0.6,
+                    text  >= 0.11,
+                    base64-bytestring >= 1
+
+Test-suite tests
+  Type:             exitcode-stdio-1.0
+  Other-Modules:    Tests.JwsSpec,
+                    Tests.JweSpec
+  Build-depends:    jwt,
+                    base >= 4,
+                    bytestring,
+                    base64-bytestring,
+                    cryptohash,
+                    crypto-pubkey,
+                    crypto-random,
+                    cipher-aes,
+                    cprng-aes,
+                    either >= 4.0,
+                    mtl,
+                    text,
+                    aeson,
+                    hspec >= 1.6,
+                    HUnit >= 1.2 && < 2,
+                    QuickCheck >= 2.4
+  Ghc-options:      -Wall -rtsopts -fno-warn-missing-signatures
+  Hs-source-dirs:   tests
+  Main-is:          tests.hs
+
