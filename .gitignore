@@ -1,3 +1,11 @@
 *.swp
 dist/
 *.aes
+*.hi
+*.o
+*.prof
+*.ps
+*.aux
+*.hp
+tags
+
