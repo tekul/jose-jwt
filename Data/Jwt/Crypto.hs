@@ -3,6 +3,7 @@
 module Data.Jwt.Crypto where
 
 import Data.ByteString (ByteString)
+import Data.Byteable (constEqBytes)
 import Data.Word (Word64)
 import qualified Data.Serialize as Serialize
 import qualified Data.ByteString as B
@@ -15,9 +16,7 @@ import Crypto.Random (CPRG, cprgGenerate)
 import qualified Crypto.Cipher.AES as AES
 import Crypto.PubKey.HashDescr
 import Crypto.MAC.HMAC (hmac)
-import Data.Text.Encoding (encodeUtf8)
 import Data.Jwt.Types
-import Data.Jwt.Internal
 
 
 oaepParams = OAEP.defaultOAEPParams (hashFunction hashDescrSHA1)
@@ -36,7 +35,7 @@ hmacVerify :: Alg         -- ^ HMAC Algorithm to use
            -> ByteString  -- ^ The signature to check
            -> Bool        -- ^ Whether the signature is correct
 hmacVerify a key msg sig = case lookup a hmacHashes of
-    Just _  -> hmacSign a key msg == sig
+    Just _  -> constEqBytes (hmacSign a key msg) sig
     Nothing -> False
 
 -- TODO: Check PKCS15.sign error conditions to see whether they apply
