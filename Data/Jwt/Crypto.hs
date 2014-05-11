@@ -2,7 +2,6 @@
 
 module Data.Jwt.Crypto where
 
-
 import Data.ByteString (ByteString)
 import Data.Word (Word64)
 import qualified Data.Serialize as Serialize
@@ -27,11 +26,8 @@ hmacSign :: Alg         -- ^ HMAC algorithm to use
          -> ByteString  -- ^ Key
          -> ByteString  -- ^ The message/content
          -> ByteString  -- ^ HMAC output
-hmacSign a k m = B.take (tLen a) $ hmac (hashFunction hash) 64 k m
+hmacSign a k m =  hmac (hashFunction hash) 64 k m
   where
-    tLen HS256 = 16
-    tLen HS384 = 24
-    tLen HS512 = 32
     hash = fromMaybe (error $ "Not an HMAC alg: " ++ show a) $ lookup a hmacHashes
 
 hmacVerify :: Alg         -- ^ HMAC Algorithm to use
@@ -129,8 +125,8 @@ decryptPayload e cek iv aad sig ct = do
       let (macKey, encKey) = B.splitAt (B.length cek `div` 2) cek
       let al = fromIntegral (B.length aad) * 8 :: Word64
       plaintext <- unpad $ AES.decryptCBC (AES.initAES encKey) iv ct
-      let mac = hmacSign (macAlg e) macKey $ B.concat [aad, iv, ct, Serialize.encode al]
-      return (plaintext, AuthTag mac)
+      let mac = authTag (macAlg e) macKey $ B.concat [aad, iv, ct, Serialize.encode al]
+      return (plaintext, mac)
 
 encryptPayload :: Enc        -- ^ Encryption algorithm
                -> ByteString -- ^ Content management key
@@ -141,14 +137,19 @@ encryptPayload :: Enc        -- ^ Encryption algorithm
 encryptPayload e cek iv aad msg = case e of
     A128GCM -> aesgcm
     A256GCM -> aesgcm
-    _       -> (aescbc, AuthTag sig)
+    _       -> (aescbc, sig)
   where
     aesgcm = AES.encryptGCM (AES.initAES cek) iv aad msg
     (macKey, encKey) = B.splitAt (B.length cek `div` 2) cek
     aescbc = AES.encryptCBC (AES.initAES encKey) iv (pad msg)
     al     = fromIntegral (B.length aad) * 8 :: Word64
-    sig = hmacSign (macAlg e) macKey $ B.concat [aad, iv, aescbc, Serialize.encode al]
+    sig = authTag (macAlg e) macKey $ B.concat [aad, iv, aescbc, Serialize.encode al]
 
+authTag a k m = AuthTag $ B.take (tLen a) $ hmacSign a k m
+  where
+    tLen HS256 = 16
+    tLen HS384 = 24
+    tLen HS512 = 32
 
 macAlg A128CBC_HS256 = HS256
 macAlg A256CBC_HS512 = HS512
