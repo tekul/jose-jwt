@@ -1,9 +1,10 @@
-Name:               jwt
+Name:               jose
 Version:            0.1
-Synopsis:           JWT library
+Synopsis:           JSON Object Signing and Encryption Library
 Description:
-  Support for processing JSON Web Tokens as defined in
-  http://tools.ietf.org/html/draft-ietf-oauth-json-web-token-13
+  Intended to provide support for the JOSE suite of IETF (draft)
+  standards and the closely related JWT (JSON web token) spec
+  (http://tools.ietf.org/html/draft-ietf-oauth-json-web-token-19).
 Author:             Luke Taylor
 License:            BSD3
 Build-Type:         Simple
@@ -11,13 +12,15 @@ Cabal-Version:      >= 1.16
 
 Library
   Default-Language:   Haskell2010
-  Exposed-modules:    Data.Jwt
-                    , Data.Jwt.Crypto
-  Other-Modules:      Data.Jwt.Internal
-                    , Data.Jwt.Types
+  Exposed-modules:    Jose.Jwt
+                    , Jose.Jws
+                    , Jose.Jwe
+                    , Jose.Jwa
+                    , Jose.Internal.Base64
+                    , Jose.Internal.Crypto
+  Other-Modules:      Jose.Types
   Build-Depends:      base >= 4
                     , mtl >= 2.1
---                  , ghc-prim >= 0.2
                     , bytestring >= 0.9
                     , byteable >= 0.1.1
                     , cereal >= 0.4
@@ -37,7 +40,7 @@ Test-suite tests
   Type:               exitcode-stdio-1.0
   Other-Modules:      Tests.JwsSpec
                     , Tests.JweSpec
-  Build-depends:      jwt
+  Build-depends:      jose
                     , base >= 4
                     , bytestring
                     , base64-bytestring
@@ -63,7 +66,7 @@ Benchmark bench-jwt
   Hs-source-dirs:     benchmarks
   Main-is:            bench.hs
   Type:               exitcode-stdio-1.0
-  Build-depends:      jwt
+  Build-depends:      jose
                     , base
                     , bytestring
                     , criterion

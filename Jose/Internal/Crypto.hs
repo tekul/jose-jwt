@@ -1,10 +1,23 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Data.Jwt.Crypto where
+module Jose.Internal.Crypto
+    ( hmacSign
+    , hmacVerify
+    , rsaSign
+    , rsaVerify
+    , rsaEncrypt
+    , encryptPayload
+    , decryptPayload
+    , decryptContentKey
+    , generateCmkAndIV
+    , pad
+    , unpad
+    )
+where
 
 import Data.ByteString (ByteString)
 import Data.Byteable (constEqBytes)
-import Data.Word (Word64)
+import Data.Word (Word64, Word8)
 import qualified Data.Serialize as Serialize
 import qualified Data.ByteString as B
 import Data.Maybe (fromMaybe)
@@ -16,9 +29,10 @@ import Crypto.Random (CPRG, cprgGenerate)
 import qualified Crypto.Cipher.AES as AES
 import Crypto.PubKey.HashDescr
 import Crypto.MAC.HMAC (hmac)
-import Data.Jwt.Types
+import Jose.Jwa
+import Jose.Types (JwtError(..))
 
-
+oaepParams :: OAEP.OAEPParams
 oaepParams = OAEP.defaultOAEPParams (hashFunction hashDescrSHA1)
 
 hmacSign :: Alg         -- ^ HMAC algorithm to use
@@ -56,8 +70,10 @@ rsaVerify a key msg sig = case lookupRSAHash a of
     Just hash -> PKCS15.verify hash key msg sig
     Nothing   -> False
 
+hmacHashes :: [(Alg, HashDescr)]
 hmacHashes = [(HS256, hashDescrSHA256), (HS384, hashDescrSHA384), (HS512, hashDescrSHA512)]
 
+lookupRSAHash :: Alg -> Maybe HashDescr
 lookupRSAHash alg = case alg of
     RS256 -> Just hashDescrSHA256
     RS384 -> Just hashDescrSHA384
@@ -70,11 +86,13 @@ generateCmkAndIV g e = (cmk, iv, g'')
     (cmk, g') = cprgGenerate (keySize e) g
     (iv, g'') = cprgGenerate (ivSize e) g'  -- iv for aes gcm or cbc
 
+keySize :: Enc -> Int
 keySize A128GCM = 16
 keySize A256GCM = 32
 keySize A128CBC_HS256 = 32
 keySize A256CBC_HS512 = 64
 
+ivSize :: Enc -> Int
 ivSize A128GCM = 12
 ivSize A256GCM = 12
 ivSize _       = 16
@@ -124,7 +142,7 @@ decryptPayload e cek iv aad sig ct = do
       let (macKey, encKey) = B.splitAt (B.length cek `div` 2) cek
       let al = fromIntegral (B.length aad) * 8 :: Word64
       plaintext <- unpad $ AES.decryptCBC (AES.initAES encKey) iv ct
-      let mac = authTag (macAlg e) macKey $ B.concat [aad, iv, ct, Serialize.encode al]
+      let mac = authTag e macKey $ B.concat [aad, iv, ct, Serialize.encode al]
       return (plaintext, mac)
 
 encryptPayload :: Enc        -- ^ Encryption algorithm
@@ -142,16 +160,16 @@ encryptPayload e cek iv aad msg = case e of
     (macKey, encKey) = B.splitAt (B.length cek `div` 2) cek
     aescbc = AES.encryptCBC (AES.initAES encKey) iv (pad msg)
     al     = fromIntegral (B.length aad) * 8 :: Word64
-    sig = authTag (macAlg e) macKey $ B.concat [aad, iv, aescbc, Serialize.encode al]
+    sig = authTag e macKey $ B.concat [aad, iv, aescbc, Serialize.encode al]
 
-authTag a k m = AuthTag $ B.take (tLen a) $ hmacSign a k m
+authTag :: Enc -> ByteString -> ByteString -> AuthTag
+authTag e k m = AuthTag $ B.take tLen $ hmacSign a k m
   where
-    tLen HS256 = 16
-    tLen HS384 = 24
-    tLen HS512 = 32
-
-macAlg A128CBC_HS256 = HS256
-macAlg A256CBC_HS512 = HS512
+    (tLen, a) = case e of
+                  A128CBC_HS256 -> (16, HS256)
+                  -- A192_CBC_HS384 -> (24, HS384)
+                  A256CBC_HS512 -> (32, HS512)
+                  _             -> error "TODO"
 
 unpad :: ByteString -> Either JwtError ByteString
 unpad bs
@@ -165,21 +183,9 @@ unpad bs
     (pt, padding) = B.splitAt (len - padLen) bs
 
 pad :: ByteString -> ByteString
-pad bs = B.append bs $ padding (B.length bs `mod` 16)
+pad bs = B.append bs $ padding
   where
-    padding 15 = B.replicate 1 1
-    padding 14 = B.replicate 2 2
-    padding 13 = B.replicate 3 3
-    padding 12 = B.replicate 4 4
-    padding 11 = B.replicate 5 5
-    padding 10 = B.replicate 6 6
-    padding  9 = B.replicate 7 7
-    padding  8 = B.replicate 8 8
-    padding  7 = B.replicate 9 9
-    padding  6 = B.replicate 10 10
-    padding  5 = B.replicate 11 11
-    padding  4 = B.replicate 12 12
-    padding  3 = B.replicate 13 13
-    padding  2 = B.replicate 14 14
-    padding  1 = B.replicate 15 15
-    padding  0 = B.replicate 16 16
+    lastBlockSize = B.length bs `mod` 16
+    padByte       = fromIntegral $ 16 - lastBlockSize :: Word8
+    padding       = B.replicate (fromIntegral padByte) padByte
+

@@ -17,8 +17,11 @@ import Crypto.PubKey.MaskGenFunction
 import Crypto.PubKey.HashDescr
 import Crypto.Cipher.Types (AuthTag(..))
 import Crypto.Random (CPRG(..))
-import Data.Jwt
-import Data.Jwt.Crypto
+import Jose.Jwt
+import qualified Jose.Jwe as Jwe
+import Jose.Jwa
+import Jose.Internal.Crypto
+import qualified Jose.Internal.Base64 as B64
 
 --------------------------------------------------------------------------------
 -- JWE Appendix Data Tests (plus quickcheck)
@@ -39,19 +42,18 @@ spec =
         rsaEncrypt g RSA_OAEP a1PubKey a1cek @?= (a1jweKey, RNG "")
 
       it "encrypts the payload to the expected ciphertext and authentication tag" $ do
-        let aad = b64Encode . encodeHeader $ a1Header
+        let aad = B64.encode . encodeHeader $ a1Header
         encryptPayload A256GCM a1cek a1iv aad a1Payload @?= (a1Ciphertext, AuthTag a1Tag)
 
       it "encodes the payload to the expected JWT, leaving the RNG empty" $ do
         let g = RNG $ B.concat [a1cek, a1iv, a1oaepSeed]
-        jweRsaEncode g RSA_OAEP A256GCM a1PubKey a1Payload @?= (a1, RNG "")
-
+        Jwe.rsaEncode g RSA_OAEP A256GCM a1PubKey a1Payload @?= (a1, RNG "")
       it "decodes the JWT to the expected header and payload" $ do
-        jweRsaDecode a1PrivKey a1 @?= Right (a1Header, a1Payload)
+        Jwe.rsaDecode a1PrivKey a1 @?= Right (a1Header, a1Payload)
 
     context "when using JWE Appendix 2 data" $ do
       let a2Header = defHdr {alg = RSA1_5, enc = Just A128CBC_HS256}
-      let aad = b64Encode . encodeHeader $ a2Header
+      let aad = B64.encode . encodeHeader $ a2Header
 
       it "generates the expected RSA-encrypted content key" $ do
         let g = RNG $ a2seed
@@ -62,13 +64,13 @@ spec =
 
       it "encodes the payload to the expected JWT" $ do
         let g = RNG $ B.concat [a2cek, a2iv, a2seed]
-        jweRsaEncode g RSA1_5 A128CBC_HS256 a2PubKey a2Payload @?= (a2, RNG "")
+        Jwe.rsaEncode g RSA1_5 A128CBC_HS256 a2PubKey a2Payload @?= (a2, RNG "")
 
       it "decrypts the ciphertext to the correct payload" $ do
         decryptPayload A128CBC_HS256 a2cek a2iv aad a2Tag a2Ciphertext @?= Right a2Payload
 
       it "decodes the JWT to the expected header and payload" $ do
-        jweRsaDecode a2PrivKey a2 @?= Right (a2Header, a2Payload)
+        Jwe.rsaDecode a2PrivKey a2 @?= Right (a2Header, a2Payload)
 
     context "when used with quickcheck" $ do
       it "padded msg is always a multiple of 16" $ property $
@@ -81,7 +83,7 @@ spec =
 jweRoundTrip :: RNG -> JWEAlgs -> B.ByteString -> Bool
 jweRoundTrip g (JWEAlgs a e) msg = encodeDecode == Right (defHdr {alg = a, enc = Just e}, msg)
   where
-    encodeDecode = jweRsaDecode a2PrivKey $ fst $ jweRsaEncode g a e a2PubKey msg
+    encodeDecode = Jwe.rsaDecode a2PrivKey $ fst $ Jwe.rsaEncode g a e a2PubKey msg
 
 -- A decidedly non-random, random number generator which allows specific
 -- sequences of bytes to be supplied which match the JWE test data.
@@ -120,7 +122,7 @@ a1Ciphertext = B.pack [229, 236, 166, 241, 53, 191, 115, 196, 174, 43, 73, 109, 
 
 a1Tag = B.pack [92, 80, 104, 49, 133, 25, 161, 215, 173, 101, 219, 211, 136, 91, 210, 145]
 
-Right a1jweKey = b64Decode "OKOawDo13gRp2ojaHV7LFpZcgV7T6DVZKTyKOMTYUmKoTCVJRgckCL9kiMT03JGeipsEdY3mx_etLbbWSrFr05kLzcSr4qKAq7YN7e9jwQRb23nfa6c9d-StnImGyFDbSv04uVuxIp5Zms1gNxKKK2Da14B8S4rzVRltdYwam_lDp5XnZAYpQdb76FdIKLaVmqgfwX7XWRxv2322i-vDxRfqNzo_tETKzpVLzfiwQyeyPGLBIO56YJ7eObdv0je81860ppamavo35UgoRdbYaBcoh9QcfylQr66oc6vFWXRcZ_ZT2LawVCWTIy3brGPi6UklfCpIMfIjf7iGdXKHzg"
+Right a1jweKey = B64.decode "OKOawDo13gRp2ojaHV7LFpZcgV7T6DVZKTyKOMTYUmKoTCVJRgckCL9kiMT03JGeipsEdY3mx_etLbbWSrFr05kLzcSr4qKAq7YN7e9jwQRb23nfa6c9d-StnImGyFDbSv04uVuxIp5Zms1gNxKKK2Da14B8S4rzVRltdYwam_lDp5XnZAYpQdb76FdIKLaVmqgfwX7XWRxv2322i-vDxRfqNzo_tETKzpVLzfiwQyeyPGLBIO56YJ7eObdv0je81860ppamavo35UgoRdbYaBcoh9QcfylQr66oc6vFWXRcZ_ZT2LawVCWTIy3brGPi6UklfCpIMfIjf7iGdXKHzg"
 
 a1RsaModulus = 20407373051396142380600281265251892119308905183562582378265551916401741797298132714477564366125574073854325621181754666299468042787718090965019045494120492365709229334674806858420600185271825023335981142192553851711447185679749878133484409202142610505370119489349112667599681596271324052456163162582257897587607185901342235063647947816589525124013368466111231306949063172170503467209564034546753006291531308789606255762727496010190006847721118463557533668762287451483156476421856126198680670740028037673487624895510756370816101325723975021588898704953504010419555312457504338174094966173304768490140232017447246019099
 
@@ -151,7 +153,7 @@ a2Ciphertext = B.pack [40, 57, 83, 181, 119, 33, 133, 148, 198, 185, 243, 24, 15
 
 a2Tag = B.pack [246, 17, 244, 190, 4, 95, 98, 3, 231, 0, 115, 157, 242, 203, 100, 191]
 
-Right a2jweKey = b64Decode "UGhIOguC7IuEvf_NPVaXsGMoLOmwvc1GyqlIKOK1nN94nHPoltGRhWhw7Zx0-kFm1NJn8LE9XShH59_i8J0PH5ZZyNfGy2xGdULU7sHNF6Gp2vPLgNZ__deLKxGHZ7PcHALUzoOegEI-8E66jX2E4zyJKx-YxzZIItRzC5hlRirb6Y5Cl_p-ko3YvkkysZIFNPccxRU7qve1WYPxqbb2Yw8kZqa2rMWI5ng8OtvzlV7elprCbuPhcCdZ6XDP0_F8rkXds2vE4X-ncOIM8hAYHHi29NX0mcKiRaD0-D-ljQTP-cFPgwCp6X-nZZd9OHBv-B3oWh2TbqmScqXMR4gp_A"
+Right a2jweKey = B64.decode "UGhIOguC7IuEvf_NPVaXsGMoLOmwvc1GyqlIKOK1nN94nHPoltGRhWhw7Zx0-kFm1NJn8LE9XShH59_i8J0PH5ZZyNfGy2xGdULU7sHNF6Gp2vPLgNZ__deLKxGHZ7PcHALUzoOegEI-8E66jX2E4zyJKx-YxzZIItRzC5hlRirb6Y5Cl_p-ko3YvkkysZIFNPccxRU7qve1WYPxqbb2Yw8kZqa2rMWI5ng8OtvzlV7elprCbuPhcCdZ6XDP0_F8rkXds2vE4X-ncOIM8hAYHHi29NX0mcKiRaD0-D-ljQTP-cFPgwCp6X-nZZd9OHBv-B3oWh2TbqmScqXMR4gp_A"
 
 
 a2RsaModulus =  22402924734748322419583087865046136971812964522608965289668050862528140628890468829261358173206844190609885548664216273129288787509446229835492005268681636400878070687042995563617837593077316848511917526886594334868053765054121327206058496913599608196082088434862911200952954663261204130886151917541465131565772711448256433529200865576041706962504490609565420543616528240562874975930318078653328569211055310553145904641192292907110395318778917935975962359665382660933281263049927785938817901532807037136641587608303638483543899849101763615990006657357057710971983052920787558713523025279998057051825799400286243909447
