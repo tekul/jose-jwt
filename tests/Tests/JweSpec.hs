@@ -4,6 +4,7 @@
 module Tests.JweSpec where
 
 import Control.Applicative
+import Data.Aeson (eitherDecode)
 import Data.Bits (xor)
 import Data.Either.Combinators
 import qualified Data.ByteString as B
@@ -20,6 +21,7 @@ import Crypto.Random (CPRG(..))
 import Jose.Jwt
 import qualified Jose.Jwe as Jwe
 import Jose.Jwa
+import qualified Jose.Jwk as Jwk
 import Jose.Internal.Crypto
 import qualified Jose.Internal.Base64 as B64
 
@@ -48,8 +50,15 @@ spec =
       it "encodes the payload to the expected JWT, leaving the RNG empty" $ do
         let g = RNG $ B.concat [a1cek, a1iv, a1oaepSeed]
         Jwe.rsaEncode g RSA_OAEP A256GCM a1PubKey a1Payload @?= (a1, RNG "")
+
       it "decodes the JWT to the expected header and payload" $ do
         Jwe.rsaDecode a1PrivKey a1 @?= Right (a1Header, a1Payload)
+
+      it "decodes the JWK to the correct RSA key values" $ do
+        let Right (Jwk.RsaPrivateJwk (RSA.PrivateKey pubKey d 0 0 0 0 0) _ _ _) = eitherDecode a1jwk
+        RSA.public_n pubKey  @?= a1RsaModulus
+        RSA.public_e pubKey  @?= rsaExponent
+        d                    @?= a1RsaPrivateExponent
 
     context "when using JWE Appendix 2 data" $ do
       let a2Header = defHdr {alg = RSA1_5, enc = Just A128CBC_HS256}
@@ -123,6 +132,8 @@ a1Ciphertext = B.pack [229, 236, 166, 241, 53, 191, 115, 196, 174, 43, 73, 109, 
 a1Tag = B.pack [92, 80, 104, 49, 133, 25, 161, 215, 173, 101, 219, 211, 136, 91, 210, 145]
 
 Right a1jweKey = B64.decode "OKOawDo13gRp2ojaHV7LFpZcgV7T6DVZKTyKOMTYUmKoTCVJRgckCL9kiMT03JGeipsEdY3mx_etLbbWSrFr05kLzcSr4qKAq7YN7e9jwQRb23nfa6c9d-StnImGyFDbSv04uVuxIp5Zms1gNxKKK2Da14B8S4rzVRltdYwam_lDp5XnZAYpQdb76FdIKLaVmqgfwX7XWRxv2322i-vDxRfqNzo_tETKzpVLzfiwQyeyPGLBIO56YJ7eObdv0je81860ppamavo35UgoRdbYaBcoh9QcfylQr66oc6vFWXRcZ_ZT2LawVCWTIy3brGPi6UklfCpIMfIjf7iGdXKHzg"
+
+a1jwk = "{\"kty\":\"RSA\", \"n\":\"oahUIoWw0K0usKNuOR6H4wkf4oBUXHTxRvgb48E-BVvxkeDNjbC4he8rUWcJoZmds2h7M70imEVhRU5djINXtqllXI4DFqcI1DgjT9LewND8MW2Krf3Spsk_ZkoFnilakGygTwpZ3uesH-PFABNIUYpOiN15dsQRkgr0vEhxN92i2asbOenSZeyaxziK72UwxrrKoExv6kc5twXTq4h-QChLOln0_mtUZwfsRaMStPs6mS6XrgxnxbWhojf663tuEQueGC-FCMfra36C9knDFGzKsNa7LZK2djYgyD3JR_MB_4NUJW_TqOQtwHYbxevoJArm-L5StowjzGy-_bq6Gw\", \"e\":\"AQAB\", \"d\":\"kLdtIj6GbDks_ApCSTYQtelcNttlKiOyPzMrXHeI-yk1F7-kpDxY4-WY5NWV5KntaEeXS1j82E375xxhWMHXyvjYecPT9fpwR_M9gV8n9Hrh2anTpTD93Dt62ypW3yDsJzBnTnrYu1iwWRgBKrEYY46qAZIrA2xAwnm2X7uGR1hghkqDp0Vqj3kbSCz1XyfCs6_LehBwtxHIyh8Ripy40p24moOAbgxVw3rxT_vlt3UVe4WO3JkJOzlpUf-KTVI2Ptgm-dARxTEtE-id-4OJr0h-K-VFs3VSndVTIznSxfyrj8ILL6MG_Uv8YAu7VILSB3lOW085-4qE3DzgrTjgyQ\" }"
 
 a1RsaModulus = 20407373051396142380600281265251892119308905183562582378265551916401741797298132714477564366125574073854325621181754666299468042787718090965019045494120492365709229334674806858420600185271825023335981142192553851711447185679749878133484409202142610505370119489349112667599681596271324052456163162582257897587607185901342235063647947816589525124013368466111231306949063172170503467209564034546753006291531308789606255762727496010190006847721118463557533668762287451483156476421856126198680670740028037673487624895510756370816101325723975021588898704953504010419555312457504338174094966173304768490140232017447246019099
 

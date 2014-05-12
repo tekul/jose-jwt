@@ -16,6 +16,7 @@ Library
                     , Jose.Jws
                     , Jose.Jwe
                     , Jose.Jwa
+                    , Jose.Jwk
                     , Jose.Internal.Base64
                     , Jose.Internal.Crypto
   Other-Modules:      Jose.Types
@@ -29,6 +30,7 @@ Library
                     , crypto-cipher-types >= 0.0.9
                     , crypto-pubkey >= 0.1.2
                     , crypto-random
+                    , crypto-numbers >= 0.2
                     , cipher-aes >= 0.2.6
                     , aeson >= 0.6
                     , text  >= 0.11
