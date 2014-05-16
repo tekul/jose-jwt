@@ -2,7 +2,8 @@
 module Main where
 
 import Crypto.Random
-import Data.Jwt
+import Jose.Jws
+import Jose.Jwa
 import qualified Data.ByteString.Char8 as B
 import Keys
 
@@ -12,4 +13,4 @@ main = do
     --rng <- cprgCreate `fmap` createEntropyPool :: IO SystemRNG
     let !msgs = map ((B.append msgPrefix) . B.pack . show) [1..10000]
 
-    mapM_ B.putStrLn $ map (jwsHmacEncode HS512 jwsHmacKey) msgs
+    mapM_ B.putStrLn $ map (hmacEncode HS512 jwsHmacKey) msgs
