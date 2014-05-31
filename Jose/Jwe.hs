@@ -17,7 +17,7 @@ import Jose.Jwa
 rsaEncode :: CPRG g => g -> Alg -> Enc -> PublicKey -> ByteString -> (ByteString, g)
 rsaEncode rng a e pubKey claims = (jwe, rng'')
   where
-    hdr = encodeHeader defHdr {alg = a, enc = Just e}
+    hdr = encodeHeader defHdr {jwtAlg = a, jwtEnc = Just e}
     (cmk, iv, rng') = generateCmkAndIV rng e
     (jweKey, rng'') = rsaEncrypt rng' a pubKey cmk
     aad = B64.encode hdr
@@ -31,8 +31,8 @@ rsaDecode rsaKey jwt = do
     let aad = head components
     [h, ek, iv, payload, sig] <- mapM B64.decode components
     hdr <- parseHeader h
-    cek <- decryptContentKey (alg hdr) rsaKey ek
-    encryption <- maybe (Left BadHeader) Right $ enc hdr
+    cek <- decryptContentKey (jwtAlg hdr) rsaKey ek
+    encryption <- maybe (Left BadHeader) Right $ jwtEnc hdr
     claims <- decryptPayload encryption cek iv aad sig payload
     return (hdr, claims)
   where

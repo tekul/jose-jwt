@@ -6,6 +6,8 @@ module Jose.Jwk
     , KeyId
     , Jwk (..)
     , JwkSet (..)
+    , findKeyById
+    , canDecode
     )
 where
 
@@ -20,7 +22,7 @@ import qualified Data.Text.Encoding as TE
 import           GHC.Generics (Generic)
 
 import qualified Jose.Internal.Base64 as B64
-import           Jose.Jwa (Alg)
+import           Jose.Jwa
 
 data KeyType = Rsa
              | Ec
@@ -46,6 +48,41 @@ data Jwk = RsaPublicJwk  RSA.PublicKey (Maybe KeyId) (Maybe KeyUse) (Maybe Alg)
 data JwkSet = JwkSet
     { keys :: [Jwk]
     } deriving (Show, Generic)
+
+canDecode :: Alg -> Maybe Enc -> Jwk -> Bool
+canDecode al en jwk = case en of
+    Nothing -> case al of
+        HS256 -> mustBeSymmetric
+        HS384 -> mustBeSymmetric
+        HS512 -> mustBeSymmetric
+        RS256 -> mustBeRsa
+        RS384 -> mustBeRsa
+        RS512 -> mustBeRsa
+        -- Either not a sig algorithm or not yet supported (EC)
+        _     -> False
+    Just _  -> case jwk of    -- JWE
+        RsaPrivateJwk _ _ _ _ -> True
+        _                     -> False
+  where
+    mustBeRsa       = not mustBeSymmetric
+    mustBeSymmetric = case jwk of
+        SymmetricJwk _ _ _ _ -> True
+        _                    -> False
+
+jwkId :: Jwk -> Maybe KeyId
+jwkId key = case key of
+    RsaPublicJwk  _ keyId _ _ -> keyId
+    RsaPrivateJwk _ keyId _ _ -> keyId
+    SymmetricJwk  _ keyId _ _ -> keyId
+
+findKeyById :: [Jwk] -> KeyId -> Maybe Jwk
+findKeyById [] _       = Nothing
+findKeyById (key:ks) keyId = case jwkId key of
+    Nothing -> findKeyById ks keyId
+    Just v  -> if v == keyId
+                   then Just key
+                   else findKeyById ks keyId
+
 
 newtype JwkBytes = JwkBytes {bytes :: ByteString} deriving (Show)
 

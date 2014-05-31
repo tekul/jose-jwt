@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, DeriveGeneric #-}
 
 module Jose.Types
     ( Jwt
@@ -10,12 +10,13 @@ module Jose.Types
     )
 where
 
-import Control.Applicative ((<$>), (<*>))
 import Data.Aeson as Aeson
 import Data.Aeson.Types
+import Data.Char (toUpper, toLower)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
+import GHC.Generics
 import Data.Text (Text)
 
 import Jose.Jwa (Alg (..), Enc)
@@ -23,36 +24,25 @@ import Jose.Jwa (Alg (..), Enc)
 type Jwt = (JwtHeader, ByteString)
 
 data JwtHeader = JwtHeader {
-    alg :: Alg
-  , enc :: Maybe Enc
-  , typ :: Maybe Text
-  , cty :: Maybe Text
-  } deriving (Eq, Show)
+    jwtAlg :: Alg
+  , jwtEnc :: Maybe Enc
+  , jwtTyp :: Maybe Text
+  , jwtCty :: Maybe Text
+  , jwtZip :: Maybe Text
+  , jwtKid :: Maybe Text
+  } deriving (Eq, Show, Generic)
 
 defHdr :: JwtHeader
-defHdr = JwtHeader None Nothing Nothing Nothing
+defHdr = JwtHeader None Nothing Nothing Nothing Nothing Nothing
 
-data JwtError = Empty | BadDots Int | BadHeader | BadSignature | BadCrypto | Base64Error String
+data JwtError = Empty | KeyError Text | BadDots Int | BadHeader | BadSignature | BadCrypto | Base64Error String
     deriving (Eq, Show)
 
 instance ToJSON JwtHeader where
-    toJSON h = object $ stripNulls [
-                        "alg" .= alg h,
-                        "enc" .= enc h,
-                        "typ" .= typ h,
-                        "cty" .= cty h ]
-
-stripNulls :: [Pair] -> [Pair]
-stripNulls = filter (\(_,v) -> v /= Null)
+    toJSON = genericToJSON hdrOptions
 
 instance FromJSON JwtHeader where
-    parseJSON (Object v) = JwtHeader <$>
-        v .: "alg"                   <*>
-        v .:? "enc"                  <*>
-        v .:? "typ"                  <*>
-        v .:? "cty"
-    parseJSON _          = fail "JWT header must be a JSON object"
-
+    parseJSON = genericParseJSON hdrOptions
 
 encodeHeader :: JwtHeader -> ByteString
 encodeHeader = B.concat . BL.toChunks . Aeson.encode
@@ -60,4 +50,17 @@ encodeHeader = B.concat . BL.toChunks . Aeson.encode
 parseHeader :: ByteString -> Either JwtError JwtHeader
 parseHeader hdr = maybe (Left BadHeader) Right $ Aeson.decode $ BL.fromChunks [hdr]
 
+hdrOptions :: Options
+hdrOptions = prefixOptions "jwt"
 
+prefixOptions :: String -> Options
+prefixOptions prefix = omitNothingOptions
+    { fieldLabelModifier     = dropPrefix $ length prefix
+    , constructorTagModifier = addPrefix prefix
+    }
+  where
+    omitNothingOptions = defaultOptions { omitNothingFields = True }
+    dropPrefix l s = let remainder = drop l s
+                     in  (toLower . head) remainder : tail remainder
+
+    addPrefix p s  = p ++ toUpper (head s) : tail s
