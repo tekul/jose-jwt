@@ -8,7 +8,6 @@ where
 
 import Crypto.PubKey.RSA (PrivateKey(..))
 import Data.ByteString (ByteString)
-import Data.Either (isRight)
 import Data.List (find)
 import qualified Data.ByteString.Char8 as BC
 
@@ -43,6 +42,8 @@ decode keySet jwt = do
                                        then Jws.rsaDecode (private_pub kPr) jwt
                                        else Jwe.rsaDecode kPr jwt
         SymmetricJwk  kb   _ _ _ -> Jws.hmacDecode kb jwt
+    isRight (Left _)  = False
+    isRight (Right _) = True
 
 findKeys :: Maybe KeyId -> Alg -> Maybe Enc -> [Jwk] -> Either JwtError [Jwk]
 findKeys kid alg enc jwks = case keyById of
