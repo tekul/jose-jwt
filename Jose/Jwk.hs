@@ -52,12 +52,12 @@ data JwkSet = JwkSet
 canDecode :: Alg -> Maybe Enc -> Jwk -> Bool
 canDecode al en jwk = case en of
     Nothing -> case al of
-        HS256 -> mustBeSymmetric
-        HS384 -> mustBeSymmetric
-        HS512 -> mustBeSymmetric
-        RS256 -> mustBeRsa
-        RS384 -> mustBeRsa
-        RS512 -> mustBeRsa
+        Signed HS256 -> mustBeSymmetric
+        Signed HS384 -> mustBeSymmetric
+        Signed HS512 -> mustBeSymmetric
+        Signed RS256 -> mustBeRsa
+        Signed RS384 -> mustBeRsa
+        Signed RS512 -> mustBeRsa
         -- Either not a sig algorithm or not yet supported (EC)
         _     -> False
     Just _  -> case jwk of    -- JWE

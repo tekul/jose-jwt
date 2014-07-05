@@ -13,11 +13,17 @@ import qualified Jose.Internal.Base64 as B64
 import Jose.Internal.Crypto
 import Jose.Jwa
 
-
-rsaEncode :: CPRG g => g -> Alg -> Enc -> PublicKey -> ByteString -> (ByteString, g)
+-- | Creates a JWE.
+rsaEncode :: CPRG g
+          => g               -- ^ Random number generator
+          -> JweAlg          -- ^ RSA algorithm to use (@RSA_OAEP@ or @RSA1_5@)
+          -> Enc             -- ^ Content encryption algorithm
+          -> PublicKey       -- ^ RSA key to encrypt with
+          -> ByteString      -- ^ The JWT claims (content)
+          -> (ByteString, g) -- ^ The encoded JWE and new generator
 rsaEncode rng a e pubKey claims = (jwe, rng'')
   where
-    hdr = encodeHeader defHdr {jwtAlg = a, jwtEnc = Just e}
+    hdr = encodeHeader defHdr {jwtAlg = Encrypted a, jwtEnc = Just e}
     (cmk, iv, rng') = generateCmkAndIV rng e
     (jweKey, rng'') = rsaEncrypt rng' a pubKey cmk
     aad = B64.encode hdr
@@ -31,7 +37,10 @@ rsaDecode rsaKey jwt = do
     let aad = head components
     [h, ek, iv, payload, sig] <- mapM B64.decode components
     hdr <- parseHeader h
-    cek <- decryptContentKey (jwtAlg hdr) rsaKey ek
+    alg <- case jwtAlg hdr of
+               Encrypted a -> Right a
+               _           -> Left BadHeader
+    cek <- rsaDecrypt alg rsaKey ek
     encryption <- maybe (Left BadHeader) Right $ jwtEnc hdr
     claims <- decryptPayload encryption cek iv aad sig payload
     return (hdr, claims)

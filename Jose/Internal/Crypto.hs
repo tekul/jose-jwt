@@ -6,9 +6,9 @@ module Jose.Internal.Crypto
     , rsaSign
     , rsaVerify
     , rsaEncrypt
+    , rsaDecrypt
     , encryptPayload
     , decryptPayload
-    , decryptContentKey
     , generateCmkAndIV
     , pad
     , unpad
@@ -35,7 +35,8 @@ import Jose.Types (JwtError(..))
 oaepParams :: OAEP.OAEPParams
 oaepParams = OAEP.defaultOAEPParams (hashFunction hashDescrSHA1)
 
-hmacSign :: Alg         -- ^ HMAC algorithm to use
+-- | Sign a message with an HMAC key
+hmacSign :: JwsAlg      -- ^ HMAC algorithm to use
          -> ByteString  -- ^ Key
          -> ByteString  -- ^ The message/content
          -> ByteString  -- ^ HMAC output
@@ -43,7 +44,9 @@ hmacSign a k m =  hmac (hashFunction hash) 64 k m
   where
     hash = fromMaybe (error $ "Not an HMAC alg: " ++ show a) $ lookup a hmacHashes
 
-hmacVerify :: Alg         -- ^ HMAC Algorithm to use
+-- | Verify the HMAC for a given message.
+-- Returns false if the MAC is incorrect or the 'Alg' is not an HMAC.
+hmacVerify :: JwsAlg      -- ^ HMAC Algorithm to use
            -> ByteString  -- ^ Key
            -> ByteString  -- ^ The message/content
            -> ByteString  -- ^ The signature to check
@@ -53,7 +56,9 @@ hmacVerify a key msg sig = case lookup a hmacHashes of
     Nothing -> False
 
 -- TODO: Check PKCS15.sign error conditions to see whether they apply
-rsaSign :: Alg            -- ^ Algorithm to use
+
+-- | Sign a message using an RSA private key.
+rsaSign :: JwsAlg         -- ^ Algorithm to use. Must be one of @RSA256@, @RSA384@ or @RSA512@.
         -> RSA.PrivateKey -- ^ Private key to sign with
         -> ByteString     -- ^ Message to sign
         -> ByteString     -- ^ The signature
@@ -61,19 +66,22 @@ rsaSign a key = either (error "Signing failed") id . PKCS15.sign Nothing hash ke
   where
     hash = fromMaybe (error $ "Not an RSA Algorithm " ++ show a) $ lookupRSAHash a
 
-rsaVerify :: Alg
-          -> RSA.PublicKey
-          -> ByteString  -- ^ The message/content
-          -> ByteString  -- ^ The signature to check
-          -> Bool        -- ^ Whether the signature is correct
+-- | Verify the signature for a message using an RSA public key.
+-- Returns false if the check fails or if the 'Alg' value is not
+-- an RSA signature algorithm.
+rsaVerify :: JwsAlg        -- ^ The signature algorithm. Used to obtain the hash function.
+          -> RSA.PublicKey -- ^ The key to check the signature with
+          -> ByteString    -- ^ The message/content
+          -> ByteString    -- ^ The signature to check
+          -> Bool          -- ^ Whether the signature is correct
 rsaVerify a key msg sig = case lookupRSAHash a of
     Just hash -> PKCS15.verify hash key msg sig
     Nothing   -> False
 
-hmacHashes :: [(Alg, HashDescr)]
+hmacHashes :: [(JwsAlg, HashDescr)]
 hmacHashes = [(HS256, hashDescrSHA256), (HS384, hashDescrSHA384), (HS512, hashDescrSHA512)]
 
-lookupRSAHash :: Alg -> Maybe HashDescr
+lookupRSAHash :: JwsAlg -> Maybe HashDescr
 lookupRSAHash alg = case alg of
     RS256 -> Just hashDescrSHA256
     RS384 -> Just hashDescrSHA384
@@ -97,27 +105,33 @@ ivSize A128GCM = 12
 ivSize A256GCM = 12
 ivSize _       = 16
 
-rsaEncrypt :: CPRG g => g -> Alg -> RSA.PublicKey -> B.ByteString -> (B.ByteString, g)
+-- | Encrypts a message (typically a symmetric key) using RSA.
+rsaEncrypt :: CPRG g
+           => g                  -- ^ Random number generator
+           -> JweAlg             -- ^ The algorithm (either @RSA1_5@ or @RSA_OAEP@)
+           -> RSA.PublicKey      -- ^ The encryption key
+           -> B.ByteString       -- ^ The message to encrypt
+           -> (B.ByteString, g)  -- ^ The encrypted messaged and new generator
 rsaEncrypt gen a pubKey content = (ct, g')
   where
     encrypt = case a of
         RSA1_5   -> PKCS15.encrypt gen
         RSA_OAEP -> OAEP.encrypt gen oaepParams
-        _        -> error "Not an RSA algorithm"
 -- TODO: Check that we can't cause any errors here with our RSA public key
     (Right ct, g') = encrypt pubKey content
 
---rsaDecrypt :: Alg -> RSA.PrivateKey -> ByteString ->
-
-decryptContentKey :: Alg -> RSA.PrivateKey -> B.ByteString -> Either JwtError B.ByteString
-decryptContentKey a rsaKey jweKey = do
+-- | Decrypts an RSA encrypted message.
+rsaDecrypt :: JweAlg                       -- ^ The RSA algorithm to use
+           -> RSA.PrivateKey               -- ^ The decryption key
+           -> B.ByteString                 -- ^ The encrypted content
+           -> Either JwtError B.ByteString -- ^ The decrypted key
+rsaDecrypt a rsaKey jweKey = do
     decrypt <- decryptAlg
     either (\_ -> Left BadCrypto) Right $ decrypt rsaKey jweKey
   where
     decryptAlg = case a of
       RSA1_5   -> Right $ PKCS15.decrypt Nothing
       RSA_OAEP -> Right $ OAEP.decrypt Nothing oaepParams
-      _        -> Left BadHeader
 
 -- TODO: Need to check key length and IV are is valid for enc.
 decryptPayload :: Enc        -- ^ Encryption algorithm

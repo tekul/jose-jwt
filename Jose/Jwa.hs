@@ -1,7 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# OPTIONS_HADDOCK prune #-}
 
 module Jose.Jwa
     ( Alg (..)
+    , JwsAlg (..)
+    , JweAlg (..)
     , Enc (..)
     , encName
     )
@@ -13,14 +16,24 @@ import Data.Text (Text)
 import Data.Maybe (fromJust)
 import Data.Tuple (swap)
 
+-- | General representation of the @alg@ JWT header value
+data Alg = None | Signed JwsAlg | Encrypted JweAlg deriving (Eq, Show)
 
-data Alg = None | HS256 | HS384 | HS512 | RS256 | RS384 | RS512 | ES256 | RSA1_5 | RSA_OAEP deriving (Eq, Show)
+-- | A subset of the signature algorithms from the
+-- <http://tools.ietf.org/html/draft-ietf-jose-json-web-algorithms-31#section-3 JWA Spec>.
+data JwsAlg = HS256 | HS384 | HS512 | RS256 | RS384 | RS512 deriving (Eq, Show)
+
+-- | A subset of the key management algorithms from the
+-- <http://tools.ietf.org/html/draft-ietf-jose-json-web-algorithms-31#section-5 JWA Spec>.
+data JweAlg = RSA1_5 | RSA_OAEP deriving (Eq, Show)
 
 -- TODO: AES_192_CBC_HMAC_SHA_384 ??
+-- | Content encryption algorithms from the
+-- <http://tools.ietf.org/html/draft-ietf-jose-json-web-algorithms-31#section-5 JWA Spec>.
 data Enc = A128CBC_HS256 | A256CBC_HS512 | A128GCM | A256GCM deriving (Eq, Show)
 
 algs :: [(Text, Alg)]
-algs = [("none", None), ("HS256", HS256), ("HS384", HS384), ("HS512", HS512), ("RS256", RS256), ("RS384", RS384), ("RS512", RS512), ("ES256", ES256), ("RSA1_5", RSA1_5), ("RSA-OAEP", RSA_OAEP)]
+algs = [("none", None), ("HS256", Signed HS256), ("HS384", Signed HS384), ("HS512", Signed HS512), ("RS256", Signed RS256), ("RS384", Signed RS384), ("RS512", Signed RS512), ("RSA1_5", Encrypted RSA1_5), ("RSA-OAEP", Encrypted RSA_OAEP)]
 
 algName :: Alg -> Text
 algName a = fromJust $ lookup a algNames
@@ -50,5 +63,4 @@ instance FromJSON Enc where
 
 instance ToJSON Enc where
     toJSON = String . encName
-
 
