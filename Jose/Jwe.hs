@@ -1,5 +1,19 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+-- | JWE RSA encrypted token support.
+--
+-- Example usage:
+--
+-- >>> import Jose.Jwe
+-- >>> import Jose.Jwa
+-- >>> import Crypto.Random.AESCtr
+-- >>> g <- makeSystem
+-- >>> import Crypto.PubKey.RSA
+-- >>> let ((kPub, kPr), g') = generate g 512 65537
+-- >>> let (jwt, g'') = rsaEncode g' RSA_OAEP A128GCM kPub "secret claims"
+-- >>> rsaDecode kPr jwt
+-- Right (JwtHeader {jwtAlg = Encrypted RSA_OAEP, jwtEnc = Just A128GCM, jwtTyp = Nothing, jwtCty = Nothing, jwtZip = Nothing, jwtKid = Nothing},"secret claims")
+
 module Jose.Jwe where
 
 import Data.ByteString (ByteString)
@@ -30,7 +44,10 @@ rsaEncode rng a e pubKey claims = (jwe, rng'')
     (ct, AuthTag sig) = encryptPayload e cmk iv aad claims
     jwe = B.intercalate "." $ map B64.encode [hdr, jweKey, iv, ct, sig]
 
-rsaDecode :: PrivateKey -> ByteString -> Either JwtError Jwt
+-- | Decrypts a JWE.
+rsaDecode :: PrivateKey          -- ^ Decryption key
+          -> ByteString          -- ^ The encoded JWE
+          -> Either JwtError Jwt -- ^ The decoded JWT, unless an error occurs
 rsaDecode rsaKey jwt = do
     checkDots
     let components = BC.split '.' jwt

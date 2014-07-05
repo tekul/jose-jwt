@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# OPTIONS_HADDOCK prune #-}
 
 module Jose.Jwt
     ( module Jose.Types
@@ -20,11 +21,13 @@ import qualified Jose.Jws as Jws
 import qualified Jose.Jwe as Jwe
 
 
--- Uses the supplied keys to decode a jwt,
--- matching keys by header kid value where possible
+-- | Uses the supplied keys to decode a JWT.
+-- Locates a matching key by header @kid@ value where possible
 -- or by suitable key type.
--- The JWK "use" and "alg" options are currently ignored.
-decode :: JwkSet -> ByteString -> Either JwtError Jwt
+-- The JWK @use@ and @alg@ options are currently ignored.
+decode :: JwkSet               -- ^ The keys to use for decoding
+       -> ByteString           -- ^ The encoded JWT
+       -> Either JwtError Jwt  -- ^ The decoded JWT, if successful
 decode keySet jwt = do
     let components = BC.split '.' jwt
     hdr <- (B64.decode $ head components) >>= parseHeader

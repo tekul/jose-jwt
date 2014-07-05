@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings, DeriveGeneric #-}
+{-# OPTIONS_HADDOCK prune #-}
 
 module Jose.Types
     ( Jwt
@@ -21,8 +22,10 @@ import Data.Text (Text)
 
 import Jose.Jwa (Alg (..), Enc)
 
+-- | Represents a decoded JWT.
 type Jwt = (JwtHeader, ByteString)
 
+-- | Standard header content for a JWT.
 data JwtHeader = JwtHeader {
     jwtAlg :: Alg
   , jwtEnc :: Maybe Enc
@@ -35,7 +38,14 @@ data JwtHeader = JwtHeader {
 defHdr :: JwtHeader
 defHdr = JwtHeader None Nothing Nothing Nothing Nothing Nothing
 
-data JwtError = Empty | KeyError Text | BadDots Int | BadHeader | BadSignature | BadCrypto | Base64Error String
+-- | Decoding errors.
+data JwtError = --Empty
+                KeyError Text      -- ^ No suitable key or wrong key type
+              | BadDots Int        -- ^ Wrong number of "." characters in the JWT
+              | BadHeader          -- ^ Header couldn't be decoded or contains bad data
+              | BadSignature       -- ^ Signature is invalid
+              | BadCrypto          -- ^ A cryptographic operation failed
+              | Base64Error String -- ^ A base64 decoding error
     deriving (Eq, Show)
 
 instance ToJSON JwtHeader where

@@ -1,5 +1,19 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+-- | JWS HMAC and RSA signed token support.
+--
+-- Example usage with HMAC:
+--
+-- >>> import Jose.Jws
+-- >>> import Jose.Jwa
+-- >>> let jwt = hmacEncode HS256 "secretmackey" "secret claims"
+-- >>> jwt
+-- "eyJhbGciOiJIUzI1NiJ9.c2VjcmV0IGNsYWltcw.Hk9VZbfMHEC_IGVHnAi25HgWR91XMneqYCl7F5izQkM"
+-- >>> hmacDecode "wrongkey" jwt
+-- Left BadSignature
+-- >>> hmacDecode "secretmackey" jwt
+-- Right (JwtHeader {jwtAlg = Signed HS256, jwtEnc = Nothing, jwtTyp = Nothing, jwtCty = Nothing, jwtZip = Nothing, jwtKid = Nothing},"secret claims")
+
 module Jose.Jws
     ( hmacEncode
     , hmacDecode
@@ -17,17 +31,30 @@ import qualified Jose.Internal.Base64 as B64
 import Jose.Internal.Crypto
 import Jose.Jwa
 
-
-hmacEncode :: JwsAlg -> ByteString -> ByteString -> ByteString
+-- | Create a JWS with an HMAC for validation.
+hmacEncode :: JwsAlg       -- ^ The MAC algorithm to use
+           -> ByteString   -- ^ The MAC key
+           -> ByteString   -- ^ The JWT claims (token content)
+           -> ByteString   -- ^ The encoded JWS token
 hmacEncode a key = encode (hmacSign a key) $ defHdr {jwtAlg = Signed a}
 
-hmacDecode :: ByteString -> ByteString -> Either JwtError Jwt
+-- | Decodes and validates an HMAC signed JWS.
+hmacDecode :: ByteString          -- ^ The HMAC key
+           -> ByteString          -- ^ The JWS token to decode
+           -> Either JwtError Jwt -- ^ The decoded token if successful
 hmacDecode key = decode (\alg -> hmacVerify alg key)
 
-rsaEncode :: JwsAlg -> PrivateKey -> ByteString -> ByteString
+-- | Creates a JWS with an RSA signature.
+rsaEncode :: JwsAlg       -- ^ The RSA algorithm to use
+          -> PrivateKey   -- ^ The key to sign with
+          -> ByteString   -- ^ The JWT claims (token content)
+          -> ByteString   -- ^ The encoded JWS token
 rsaEncode a k = encode (rsaSign a k) $ defHdr {jwtAlg = Signed a}
 
-rsaDecode :: PublicKey -> ByteString -> Either JwtError Jwt
+-- | Decode and validate an RSA signed JWS.
+rsaDecode :: PublicKey            -- ^ The key to check the signature with
+          -> ByteString           -- ^ The encoded JWS
+          -> Either JwtError Jwt  -- ^ The decoded token if successful
 rsaDecode key = decode (\alg -> rsaVerify alg key)
 
 encode :: (ByteString -> ByteString) -> JwtHeader -> ByteString -> ByteString
@@ -37,8 +64,6 @@ encode sign hdr payload = B.intercalate "." [hdrPayload, B64.encode $ sign hdrPa
 
 type JwsVerifier = JwsAlg -> ByteString -> ByteString -> Bool
 
--- Decodes and parses the JWT header and returns the header and the
--- byte segments of the JWT.
 decode :: JwsVerifier -> ByteString -> Either JwtError Jwt
 decode verify jwt = do
     checkDots

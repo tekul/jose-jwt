@@ -16,7 +16,7 @@ import Data.Text (Text)
 import Data.Maybe (fromJust)
 import Data.Tuple (swap)
 
--- | General representation of the @alg@ JWT header value
+-- | General representation of the @alg@ JWT header value.
 data Alg = None | Signed JwsAlg | Encrypted JweAlg deriving (Eq, Show)
 
 -- | A subset of the signature algorithms from the

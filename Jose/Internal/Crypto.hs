@@ -1,4 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# OPTIONS_HADDOCK prune #-}
+
+-- | Internal functions for encrypting and signing / decrypting
+-- and verifying JWT content.
 
 module Jose.Internal.Crypto
     ( hmacSign
@@ -15,27 +19,25 @@ module Jose.Internal.Crypto
     )
 where
 
-import Data.ByteString (ByteString)
-import Data.Byteable (constEqBytes)
-import Data.Word (Word64, Word8)
-import qualified Data.Serialize as Serialize
-import qualified Data.ByteString as B
-import Data.Maybe (fromMaybe)
-import Crypto.Cipher.Types (AuthTag(..))
+import           Crypto.Cipher.Types (AuthTag(..))
 import qualified Crypto.PubKey.RSA as RSA
 import qualified Crypto.PubKey.RSA.PKCS15 as PKCS15
 import qualified Crypto.PubKey.RSA.OAEP as OAEP
-import Crypto.Random (CPRG, cprgGenerate)
+import           Crypto.Random (CPRG, cprgGenerate)
 import qualified Crypto.Cipher.AES as AES
-import Crypto.PubKey.HashDescr
-import Crypto.MAC.HMAC (hmac)
-import Jose.Jwa
-import Jose.Types (JwtError(..))
+import           Crypto.PubKey.HashDescr
+import           Crypto.MAC.HMAC (hmac)
+import           Data.Byteable (constEqBytes)
+import           Data.ByteString (ByteString)
+import qualified Data.ByteString as B
+import           Data.Maybe (fromMaybe)
+import qualified Data.Serialize as Serialize
+import           Data.Word (Word64, Word8)
 
-oaepParams :: OAEP.OAEPParams
-oaepParams = OAEP.defaultOAEPParams (hashFunction hashDescrSHA1)
+import           Jose.Jwa
+import           Jose.Types (JwtError(..))
 
--- | Sign a message with an HMAC key
+-- | Sign a message with an HMAC key.
 hmacSign :: JwsAlg      -- ^ HMAC algorithm to use
          -> ByteString  -- ^ Key
          -> ByteString  -- ^ The message/content
@@ -88,7 +90,12 @@ lookupRSAHash alg = case alg of
     RS512 -> Just hashDescrSHA512
     _     -> Nothing
 
-generateCmkAndIV :: CPRG g => g -> Enc -> (B.ByteString, B.ByteString, g)
+-- | Generates the symmetric key (content management key) and IV
+-- used to encrypt a message.
+generateCmkAndIV :: CPRG g
+                 => g   -- ^ The random number generator
+                 -> Enc -- ^ The encryption algorithm to be used
+                 -> (B.ByteString, B.ByteString, g) -- ^ The key, IV and generator
 generateCmkAndIV g e = (cmk, iv, g'')
   where
     (cmk, g') = cprgGenerate (keySize e) g
@@ -133,7 +140,12 @@ rsaDecrypt a rsaKey jweKey = do
       RSA1_5   -> Right $ PKCS15.decrypt Nothing
       RSA_OAEP -> Right $ OAEP.decrypt Nothing oaepParams
 
+oaepParams :: OAEP.OAEPParams
+oaepParams = OAEP.defaultOAEPParams (hashFunction hashDescrSHA1)
+
 -- TODO: Need to check key length and IV are is valid for enc.
+
+-- | Decrypt an AES encrypted message.
 decryptPayload :: Enc        -- ^ Encryption algorithm
                -> ByteString -- ^ Content management key
                -> ByteString -- ^ IV
@@ -159,11 +171,12 @@ decryptPayload e cek iv aad sig ct = do
       let mac = authTag e macKey $ B.concat [aad, iv, ct, Serialize.encode al]
       return (plaintext, mac)
 
-encryptPayload :: Enc        -- ^ Encryption algorithm
-               -> ByteString -- ^ Content management key
-               -> ByteString -- ^ IV
-               -> ByteString -- ^ Additional authenticated data
-               -> ByteString -- ^ The message/JWT claims
+-- | Encrypt a message using AES.
+encryptPayload :: Enc                   -- ^ Encryption algorithm
+               -> ByteString            -- ^ Content management key
+               -> ByteString            -- ^ IV
+               -> ByteString            -- ^ Additional authenticated data
+               -> ByteString            -- ^ The message/JWT claims
                -> (ByteString, AuthTag) -- ^ Ciphertext claims and signature tag
 encryptPayload e cek iv aad msg = case e of
     A128GCM -> aesgcm
@@ -180,10 +193,10 @@ authTag :: Enc -> ByteString -> ByteString -> AuthTag
 authTag e k m = AuthTag $ B.take tLen $ hmacSign a k m
   where
     (tLen, a) = case e of
-                  A128CBC_HS256 -> (16, HS256)
-                  -- A192_CBC_HS384 -> (24, HS384)
-                  A256CBC_HS512 -> (32, HS512)
-                  _             -> error "TODO"
+        A128CBC_HS256 -> (16, HS256)
+        -- A192_CBC_HS384 -> (24, HS384)
+        A256CBC_HS512 -> (32, HS512)
+        _             -> error "TODO"
 
 unpad :: ByteString -> Either JwtError ByteString
 unpad bs
