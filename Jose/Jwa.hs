@@ -57,6 +57,22 @@ instance FromJSON Alg where
 instance ToJSON Alg where
     toJSON = String . algName
 
+instance FromJSON JwsAlg where
+    parseJSON = withText "JwsAlg" $ \t -> case lookup t algs of
+        Just (Signed a) -> pure a
+        _               -> fail ("Unsupported JWS algorithm")
+
+instance ToJSON JwsAlg where
+    toJSON a = String . algName $ Signed a
+
+instance FromJSON JweAlg where
+    parseJSON = withText "JweAlg" $ \t -> case lookup t algs of
+        Just (Encrypted a) -> pure a
+        _                  -> fail ("Unsupported JWE algorithm")
+
+instance ToJSON JweAlg where
+    toJSON a = String . algName $ Encrypted a
+
 instance FromJSON Enc where
     parseJSON = withText "Enc" $ \t ->
       maybe (fail "Unsupported enc") pure $ lookup t encs
