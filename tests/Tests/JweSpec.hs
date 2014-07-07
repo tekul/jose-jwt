@@ -33,7 +33,7 @@ spec :: Spec
 spec =
   describe "JWE encoding and decoding" $ do
     context "when using JWE Appendix 1 data" $ do
-      let a1Header = defHdr {jwtAlg = Encrypted RSA_OAEP, jwtEnc = Just A256GCM}
+      let a1Header = defJweHdr {jweAlg = RSA_OAEP, jweEnc = A256GCM}
 
       it "generates the expected IV and CMK from the RNG" $ do
         let g = RNG $ B.append a1cek a1iv
@@ -61,7 +61,7 @@ spec =
         d                    @?= a1RsaPrivateExponent
 
     context "when using JWE Appendix 2 data" $ do
-      let a2Header = defHdr {jwtAlg = Encrypted RSA1_5, jwtEnc = Just A128CBC_HS256}
+      let a2Header = defJweHdr {jweAlg = RSA1_5, jweEnc = A128CBC_HS256}
       let aad = B64.encode . encodeHeader $ a2Header
 
       it "generates the expected RSA-encrypted content key" $ do
@@ -90,7 +90,7 @@ spec =
 
 -- verboseQuickCheckWith quickCheckWith stdArgs {maxSuccess=10000}  jweRoundTrip
 jweRoundTrip :: RNG -> JWEAlgs -> B.ByteString -> Bool
-jweRoundTrip g (JWEAlgs a e) msg = encodeDecode == Right (defHdr {jwtAlg = Encrypted a, jwtEnc = Just e}, msg)
+jweRoundTrip g (JWEAlgs a e) msg = encodeDecode == Right (defJweHdr {jweAlg = a, jweEnc = e}, msg)
   where
     encodeDecode = Jwe.rsaDecode a2PrivKey $ fst $ Jwe.rsaEncode g a e a2PubKey msg
 

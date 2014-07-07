@@ -45,6 +45,7 @@ Library
                     , cipher-aes >= 0.2.6
                     , aeson >= 0.7
                     , text  >= 0.11
+                    , unordered-containers >= 0.2
                     , base64-bytestring >= 1
   Ghc-Options:        -Wall -O2
 

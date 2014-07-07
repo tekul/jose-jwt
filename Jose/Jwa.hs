@@ -17,11 +17,11 @@ import Data.Maybe (fromJust)
 import Data.Tuple (swap)
 
 -- | General representation of the @alg@ JWT header value.
-data Alg = None | Signed JwsAlg | Encrypted JweAlg deriving (Eq, Show)
+data Alg = Signed JwsAlg | Encrypted JweAlg deriving (Eq, Show)
 
 -- | A subset of the signature algorithms from the
 -- <http://tools.ietf.org/html/draft-ietf-jose-json-web-algorithms-31#section-3 JWA Spec>.
-data JwsAlg = HS256 | HS384 | HS512 | RS256 | RS384 | RS512 deriving (Eq, Show)
+data JwsAlg = None | HS256 | HS384 | HS512 | RS256 | RS384 | RS512 deriving (Eq, Show)
 
 -- | A subset of the key management algorithms from the
 -- <http://tools.ietf.org/html/draft-ietf-jose-json-web-algorithms-31#section-5 JWA Spec>.
@@ -33,7 +33,7 @@ data JweAlg = RSA1_5 | RSA_OAEP deriving (Eq, Show)
 data Enc = A128CBC_HS256 | A256CBC_HS512 | A128GCM | A256GCM deriving (Eq, Show)
 
 algs :: [(Text, Alg)]
-algs = [("none", None), ("HS256", Signed HS256), ("HS384", Signed HS384), ("HS512", Signed HS512), ("RS256", Signed RS256), ("RS384", Signed RS384), ("RS512", Signed RS512), ("RSA1_5", Encrypted RSA1_5), ("RSA-OAEP", Encrypted RSA_OAEP)]
+algs = [("none", Signed None), ("HS256", Signed HS256), ("HS384", Signed HS384), ("HS512", Signed HS512), ("RS256", Signed RS256), ("RS384", Signed RS384), ("RS512", Signed RS512), ("RSA1_5", Encrypted RSA1_5), ("RSA-OAEP", Encrypted RSA_OAEP)]
 
 algName :: Alg -> Text
 algName a = fromJust $ lookup a algNames

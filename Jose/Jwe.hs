@@ -12,7 +12,7 @@
 -- >>> let ((kPub, kPr), g') = generate g 512 65537
 -- >>> let (jwt, g'') = rsaEncode g' RSA_OAEP A128GCM kPub "secret claims"
 -- >>> rsaDecode kPr jwt
--- Right (JwtHeader {jwtAlg = Encrypted RSA_OAEP, jwtEnc = Just A128GCM, jwtTyp = Nothing, jwtCty = Nothing, jwtZip = Nothing, jwtKid = Nothing},"secret claims")
+-- Right (JweHeader {jweAlg = RSA_OAEP, jweEnc = A128GCM, jweTyp = Nothing, jweCty = Nothing, jweZip = Nothing, jweKid = Nothing},"secret claims")
 
 module Jose.Jwe where
 
@@ -37,7 +37,7 @@ rsaEncode :: CPRG g
           -> (ByteString, g) -- ^ The encoded JWE and new generator
 rsaEncode rng a e pubKey claims = (jwe, rng'')
   where
-    hdr = encodeHeader defHdr {jwtAlg = Encrypted a, jwtEnc = Just e}
+    hdr = encodeHeader defJweHdr {jweAlg = a, jweEnc = e}
     (cmk, iv, rng') = generateCmkAndIV rng e
     (jweKey, rng'') = rsaEncrypt rng' a pubKey cmk
     aad = B64.encode hdr
@@ -47,19 +47,18 @@ rsaEncode rng a e pubKey claims = (jwe, rng'')
 -- | Decrypts a JWE.
 rsaDecode :: PrivateKey          -- ^ Decryption key
           -> ByteString          -- ^ The encoded JWE
-          -> Either JwtError Jwt -- ^ The decoded JWT, unless an error occurs
+          -> Either JwtError Jwe -- ^ The decoded JWT, unless an error occurs
 rsaDecode rsaKey jwt = do
     checkDots
     let components = BC.split '.' jwt
     let aad = head components
     [h, ek, iv, payload, sig] <- mapM B64.decode components
-    hdr <- parseHeader h
-    alg <- case jwtAlg hdr of
-               Encrypted a -> Right a
-               _           -> Left BadHeader
-    cek <- rsaDecrypt alg rsaKey ek
-    encryption <- maybe (Left BadHeader) Right $ jwtEnc hdr
-    claims <- decryptPayload encryption cek iv aad sig payload
+    hdr <- case parseHeader h of
+        Right (JweH jweHdr) -> return jweHdr
+        _                   -> Left BadHeader
+    let alg = jweAlg hdr
+    cek    <- rsaDecrypt alg rsaKey ek
+    claims <- decryptPayload (jweEnc hdr) cek iv aad sig payload
     return (hdr, claims)
   where
     checkDots = case BC.count '.' jwt of

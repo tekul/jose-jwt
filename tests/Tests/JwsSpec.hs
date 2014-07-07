@@ -26,14 +26,14 @@ spec =
     describe "JWS encoding and decoding" $ do
       context "when using JWS Appendix A.1 data" $ do
         it "decodes the JWT to the expected header and payload" $
-          Jws.hmacDecode hmacKey a11 @?= Right (defHdr {jwtAlg = Signed HS256, jwtTyp = Just "JWT"}, a11Payload)
+          Jws.hmacDecode hmacKey a11 @?= Right (defJwsHdr {jwsAlg = HS256, jwsTyp = Just "JWT"}, a11Payload)
 
         it "encodes the payload to the expected JWT" $
           encode a11mac a11Header a11Payload @?= a11
 
       context "when using JWS Appendix A.2 data" $ do
         it "decodes the JWT to the expected header and payload" $
-          Jws.rsaDecode rsaPublicKey a21 @?= Right (defHdr {jwtAlg = Signed RS256}, a21Payload)
+          Jws.rsaDecode rsaPublicKey a21 @?= Right (defJwsHdr {jwsAlg = RS256}, a21Payload)
 
         it "encodes the payload to the expected JWT" $ do
           let sign = either (error "Sign failed") id . RSAPKCS15.sign Nothing hashDescrSHA256 rsaPrivateKey
@@ -52,7 +52,7 @@ encode sign hdr payload = B.intercalate "." [hdrPayload, B64.encode $ sign hdrPa
   where
     hdrPayload = B.intercalate "." $ map B64.encode [hdr, payload]
 
-rsaRoundTrip a msg = Jws.rsaDecode rsaPublicKey (Jws.rsaEncode a rsaPrivateKey msg) @?= Right (defHdr {jwtAlg = Signed a}, msg)
+rsaRoundTrip a msg = Jws.rsaDecode rsaPublicKey (Jws.rsaEncode a rsaPrivateKey msg) @?= Right (defJwsHdr {jwsAlg = a}, msg)
 
 a11Header = "{\"typ\":\"JWT\",\r\n \"alg\":\"HS256\"}" :: B.ByteString
 a11Payload = "{\"iss\":\"joe\",\r\n \"exp\":1300819380,\r\n \"http://example.com/is_root\":true}"

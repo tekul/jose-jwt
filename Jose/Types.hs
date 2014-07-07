@@ -2,41 +2,67 @@
 {-# OPTIONS_HADDOCK prune #-}
 
 module Jose.Types
-    ( Jwt
+    ( Jwt (..)
+    , Jwe
+    , Jws
     , JwtHeader (..)
+    , JwsHeader (..)
+    , JweHeader (..)
     , JwtError (..)
     , parseHeader
     , encodeHeader
-    , defHdr
+    , defJwsHdr
+    , defJweHdr
     )
 where
 
-import Data.Aeson as Aeson
+import Data.Aeson
 import Data.Aeson.Types
 import Data.Char (toUpper, toLower)
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
+import qualified Data.HashMap.Strict as H
 import GHC.Generics
 import Data.Text (Text)
 
-import Jose.Jwa (Alg (..), Enc)
+import Jose.Jwa (JweAlg(..), JwsAlg (..), Enc(..))
 
--- | Represents a decoded JWT.
-type Jwt = (JwtHeader, ByteString)
+-- | The header and claims of a decoded JWS.
+type Jws = (JwsHeader, ByteString)
 
--- | Standard header content for a JWT.
-data JwtHeader = JwtHeader {
-    jwtAlg :: Alg
-  , jwtEnc :: Maybe Enc
-  , jwtTyp :: Maybe Text
-  , jwtCty :: Maybe Text
-  , jwtZip :: Maybe Text
-  , jwtKid :: Maybe Text
+-- | The header and claims of a decoded JWE.
+type Jwe = (JweHeader, ByteString)
+
+-- | A decoded JWT which can be either a JWE or a JWS.
+data Jwt = Jws !Jws | Jwe !Jwe
+
+data JwtHeader = JweH JweHeader
+               | JwsH JwsHeader
+
+
+-- | Header content for a JWS.
+data JwsHeader = JwsHeader {
+    jwsAlg :: JwsAlg
+  , jwsTyp :: Maybe Text
+  , jwsCty :: Maybe Text
+  , jwsKid :: Maybe Text
   } deriving (Eq, Show, Generic)
 
-defHdr :: JwtHeader
-defHdr = JwtHeader None Nothing Nothing Nothing Nothing Nothing
+-- | Header content for a JWE.
+data JweHeader = JweHeader {
+    jweAlg :: JweAlg
+  , jweEnc :: Enc
+  , jweTyp :: Maybe Text
+  , jweCty :: Maybe Text
+  , jweZip :: Maybe Text
+  , jweKid :: Maybe Text
+  } deriving (Eq, Show, Generic)
+
+defJwsHdr :: JwsHeader
+defJwsHdr = JwsHeader None Nothing Nothing Nothing
+
+defJweHdr :: JweHeader
+defJweHdr = JweHeader RSA_OAEP A128GCM Nothing Nothing Nothing Nothing
 
 -- | Decoding errors.
 data JwtError = --Empty
@@ -48,20 +74,35 @@ data JwtError = --Empty
               | Base64Error String -- ^ A base64 decoding error
     deriving (Eq, Show)
 
-instance ToJSON JwtHeader where
-    toJSON = genericToJSON hdrOptions
+instance ToJSON JwsHeader where
+    toJSON = genericToJSON jwsOptions
+
+instance FromJSON JwsHeader where
+    parseJSON = genericParseJSON jwsOptions
+
+instance ToJSON JweHeader where
+    toJSON = genericToJSON jweOptions
+
+instance FromJSON JweHeader where
+    parseJSON = genericParseJSON jweOptions
 
 instance FromJSON JwtHeader where
-    parseJSON = genericParseJSON hdrOptions
+    parseJSON v@(Object o) = case H.lookup "enc" o of
+        Nothing -> fmap JwsH $ parseJSON v
+        _       -> fmap JweH $ parseJSON v
+    parseJSON _            = fail "JwtHeader must be an object"
 
-encodeHeader :: JwtHeader -> ByteString
-encodeHeader = B.concat . BL.toChunks . Aeson.encode
+encodeHeader :: ToJSON a => a -> ByteString
+encodeHeader h = BL.toStrict $ encode h
 
 parseHeader :: ByteString -> Either JwtError JwtHeader
-parseHeader hdr = maybe (Left BadHeader) Right $ Aeson.decode $ BL.fromChunks [hdr]
+parseHeader hdr = maybe (Left BadHeader) Right $ decodeStrict hdr
 
-hdrOptions :: Options
-hdrOptions = prefixOptions "jwt"
+jwsOptions :: Options
+jwsOptions = prefixOptions "jws"
+
+jweOptions :: Options
+jweOptions = prefixOptions "jwe"
 
 prefixOptions :: String -> Options
 prefixOptions prefix = omitNothingOptions

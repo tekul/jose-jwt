@@ -12,7 +12,7 @@
 -- >>> hmacDecode "wrongkey" jwt
 -- Left BadSignature
 -- >>> hmacDecode "secretmackey" jwt
--- Right (JwtHeader {jwtAlg = Signed HS256, jwtEnc = Nothing, jwtTyp = Nothing, jwtCty = Nothing, jwtZip = Nothing, jwtKid = Nothing},"secret claims")
+-- Right (JwsHeader {jwsAlg = HS256, jwsTyp = Nothing, jwsCty = Nothing, jwsKid = Nothing},"secret claims")
 
 module Jose.Jws
     ( hmacEncode
@@ -36,12 +36,12 @@ hmacEncode :: JwsAlg       -- ^ The MAC algorithm to use
            -> ByteString   -- ^ The MAC key
            -> ByteString   -- ^ The JWT claims (token content)
            -> ByteString   -- ^ The encoded JWS token
-hmacEncode a key = encode (hmacSign a key) $ defHdr {jwtAlg = Signed a}
+hmacEncode a key = encode (hmacSign a key) $ defJwsHdr {jwsAlg = a}
 
 -- | Decodes and validates an HMAC signed JWS.
 hmacDecode :: ByteString          -- ^ The HMAC key
            -> ByteString          -- ^ The JWS token to decode
-           -> Either JwtError Jwt -- ^ The decoded token if successful
+           -> Either JwtError Jws -- ^ The decoded token if successful
 hmacDecode key = decode (\alg -> hmacVerify alg key)
 
 -- | Creates a JWS with an RSA signature.
@@ -49,32 +49,31 @@ rsaEncode :: JwsAlg       -- ^ The RSA algorithm to use
           -> PrivateKey   -- ^ The key to sign with
           -> ByteString   -- ^ The JWT claims (token content)
           -> ByteString   -- ^ The encoded JWS token
-rsaEncode a k = encode (rsaSign a k) $ defHdr {jwtAlg = Signed a}
+rsaEncode a k = encode (rsaSign a k) $ defJwsHdr {jwsAlg = a}
 
 -- | Decode and validate an RSA signed JWS.
 rsaDecode :: PublicKey            -- ^ The key to check the signature with
           -> ByteString           -- ^ The encoded JWS
-          -> Either JwtError Jwt  -- ^ The decoded token if successful
+          -> Either JwtError Jws  -- ^ The decoded token if successful
 rsaDecode key = decode (\alg -> rsaVerify alg key)
 
-encode :: (ByteString -> ByteString) -> JwtHeader -> ByteString -> ByteString
+encode :: (ByteString -> ByteString) -> JwsHeader -> ByteString -> ByteString
 encode sign hdr payload = B.intercalate "." [hdrPayload, B64.encode $ sign hdrPayload]
   where
     hdrPayload = B.intercalate "." $ map B64.encode [encodeHeader hdr, payload]
 
 type JwsVerifier = JwsAlg -> ByteString -> ByteString -> Bool
 
-decode :: JwsVerifier -> ByteString -> Either JwtError Jwt
+decode :: JwsVerifier -> ByteString -> Either JwtError Jws
 decode verify jwt = do
     checkDots
     let (hdrPayload, sig) = spanEndDot jwt
     sigBytes <- B64.decode sig
     [h, payload] <- mapM B64.decode $ BC.split '.' hdrPayload
-    hdr <- parseHeader h
-    alg <- case jwtAlg hdr of
-        Signed a -> Right a
-        _        -> Left BadHeader
-    if verify alg hdrPayload sigBytes
+    hdr <- case parseHeader h of
+        Right (JwsH jwsHdr) -> return jwsHdr
+        _                   -> Left BadHeader
+    if verify (jwsAlg hdr) hdrPayload sigBytes
       then Right (hdr, payload)
       else Left BadSignature
   where

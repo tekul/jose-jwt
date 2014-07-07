@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings, BangPatterns, DeriveGeneric #-}
+{-# OPTIONS_HADDOCK prune #-}
 
 module Jose.Jwk
     ( KeyType
@@ -6,8 +7,8 @@ module Jose.Jwk
     , KeyId
     , Jwk (..)
     , JwkSet (..)
-    , findKeyById
-    , canDecode
+    , findMatchingJwsKeys
+    , findMatchingJweKeys
     )
 where
 
@@ -23,6 +24,7 @@ import           GHC.Generics (Generic)
 
 import qualified Jose.Internal.Base64 as B64
 import           Jose.Jwa
+import           Jose.Types (JwsHeader(..), JweHeader(..))
 
 data KeyType = Rsa
              | Ec
@@ -49,25 +51,26 @@ data JwkSet = JwkSet
     { keys :: [Jwk]
     } deriving (Show, Generic)
 
-canDecode :: Alg -> Maybe Enc -> Jwk -> Bool
-canDecode al en jwk = case en of
-    Nothing -> case al of
-        Signed HS256 -> mustBeSymmetric
-        Signed HS384 -> mustBeSymmetric
-        Signed HS512 -> mustBeSymmetric
-        Signed RS256 -> mustBeRsa
-        Signed RS384 -> mustBeRsa
-        Signed RS512 -> mustBeRsa
-        -- Either not a sig algorithm or not yet supported (EC)
+canDecodeJws :: JwsAlg -> Jwk -> Bool
+canDecodeJws al jwk = case al of
+        HS256 -> mustBeSymmetric
+        HS384 -> mustBeSymmetric
+        HS512 -> mustBeSymmetric
+        RS256 -> mustBeRsa
+        RS384 -> mustBeRsa
+        RS512 -> mustBeRsa
+        -- Not yet supported (EC)
         _     -> False
-    Just _  -> case jwk of    -- JWE
-        RsaPrivateJwk _ _ _ _ -> True
-        _                     -> False
-  where
+ where
     mustBeRsa       = not mustBeSymmetric
     mustBeSymmetric = case jwk of
         SymmetricJwk _ _ _ _ -> True
         _                    -> False
+
+canDecodeJwe :: JweAlg -> Jwk -> Bool
+canDecodeJwe _ jwk = case jwk of    -- JWE
+        RsaPrivateJwk _ _ _ _ -> True
+        _                     -> False
 
 jwkId :: Jwk -> Maybe KeyId
 jwkId key = case key of
@@ -83,6 +86,17 @@ findKeyById (key:ks) keyId = case jwkId key of
                    then Just key
                    else findKeyById ks keyId
 
+-- TODO filter by key use
+findMatchingJwsKeys :: [Jwk] -> JwsHeader -> [Jwk]
+findMatchingJwsKeys jwks hdr = filter (canDecodeJws (jwsAlg hdr)) $ filterById (jwsKid hdr) jwks
+
+filterById :: Maybe KeyId -> [Jwk] -> [Jwk]
+filterById keyId jwks = case keyId of
+        Just i  -> maybe jwks (\key -> [key]) $ findKeyById jwks i
+        Nothing -> jwks
+
+findMatchingJweKeys :: [Jwk] -> JweHeader -> [Jwk]
+findMatchingJweKeys jwks hdr = filter (canDecodeJwe (jweAlg hdr)) $ filterById (jweKid hdr) jwks
 
 newtype JwkBytes = JwkBytes {bytes :: ByteString} deriving (Show)
 
@@ -233,7 +247,6 @@ defJwk = J
     , x5c = Nothing
     , x5t = Nothing
     }
-
 
 createJwk :: JwkData -> Either String Jwk
 createJwk kd = case kd of
