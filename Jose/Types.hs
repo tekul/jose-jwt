@@ -5,10 +5,12 @@ module Jose.Types
     ( Jwt (..)
     , Jwe
     , Jws
+    , JwtClaims (..)
     , JwtHeader (..)
     , JwsHeader (..)
     , JweHeader (..)
     , JwtError (..)
+    , IntDate (..)
     , parseHeader
     , encodeHeader
     , defJwsHdr
@@ -16,12 +18,15 @@ module Jose.Types
     )
 where
 
+import Control.Applicative
 import Data.Aeson
 import Data.Aeson.Types
 import Data.Char (toUpper, toLower)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.HashMap.Strict as H
+import Data.Int (Int64)
+import Data.Time.Clock.POSIX
 import GHC.Generics
 import Data.Text (Text)
 
@@ -58,6 +63,35 @@ data JweHeader = JweHeader {
   , jweKid :: Maybe Text
   } deriving (Eq, Show, Generic)
 
+newtype IntDate = IntDate POSIXTime deriving (Show, Eq, Ord)
+
+instance FromJSON IntDate where
+    parseJSON = withScientific "IntDate" $ \n ->
+        pure . IntDate . fromIntegral $ (round n :: Int64)
+
+instance ToJSON IntDate where
+    toJSON (IntDate t) = Number $ fromIntegral (round t :: Int64)
+
+-- | Registered claims defined in section 4 of the JWT spec.
+data JwtClaims = JwtClaims
+    { jwtIss :: !(Maybe Text)
+    , jwtSub :: !(Maybe Text)
+    , jwtAud :: !(Maybe Text)
+    , jwtExp :: !(Maybe IntDate)
+    , jwtNbf :: !(Maybe IntDate)
+    , jwtIat :: !(Maybe IntDate)
+    , jwtJti :: !(Maybe Text)
+    } deriving (Show, Generic)
+
+instance FromJSON JwtClaims where
+    parseJSON = genericParseJSON claimsOptions
+
+instance ToJSON JwtClaims where
+    toJSON = genericToJSON claimsOptions
+
+claimsOptions :: Options
+claimsOptions = prefixOptions "jwt"
+
 defJwsHdr :: JwsHeader
 defJwsHdr = JwsHeader None Nothing Nothing Nothing
 
@@ -69,6 +103,7 @@ data JwtError = --Empty
                 KeyError Text      -- ^ No suitable key or wrong key type
               | BadDots Int        -- ^ Wrong number of "." characters in the JWT
               | BadHeader          -- ^ Header couldn't be decoded or contains bad data
+              | BadClaims          -- ^ Claims part couldn't be decoded or contains bad data
               | BadSignature       -- ^ Signature is invalid
               | BadCrypto          -- ^ A cryptographic operation failed
               | Base64Error String -- ^ A base64 decoding error
@@ -88,8 +123,8 @@ instance FromJSON JweHeader where
 
 instance FromJSON JwtHeader where
     parseJSON v@(Object o) = case H.lookup "enc" o of
-        Nothing -> fmap JwsH $ parseJSON v
-        _       -> fmap JweH $ parseJSON v
+        Nothing -> JwsH <$> parseJSON v
+        _       -> JweH <$> parseJSON v
     parseJSON _            = fail "JwtHeader must be an object"
 
 encodeHeader :: ToJSON a => a -> ByteString

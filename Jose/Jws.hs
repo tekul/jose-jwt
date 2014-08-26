@@ -22,10 +22,11 @@ module Jose.Jws
     )
 where
 
+import Control.Monad (unless)
+import Crypto.PubKey.RSA (PrivateKey, PublicKey)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as BC
-import Crypto.PubKey.RSA (PrivateKey, PublicKey)
 import Jose.Types
 import qualified Jose.Internal.Base64 as B64
 import Jose.Internal.Crypto
@@ -66,7 +67,7 @@ type JwsVerifier = JwsAlg -> ByteString -> ByteString -> Bool
 
 decode :: JwsVerifier -> ByteString -> Either JwtError Jws
 decode verify jwt = do
-    checkDots
+    unless (BC.count '.' jwt == 2) $ Left $ BadDots 2
     let (hdrPayload, sig) = spanEndDot jwt
     sigBytes <- B64.decode sig
     [h, payload] <- mapM B64.decode $ BC.split '.' hdrPayload
@@ -77,9 +78,6 @@ decode verify jwt = do
       then Right (hdr, payload)
       else Left BadSignature
   where
-    checkDots = case (BC.count '.' jwt) of
-                    2 -> Right ()
-                    _ -> Left $ BadDots 2
     spanEndDot bs = let (toDot, end) = BC.spanEnd (/= '.') bs
                     in  (B.init toDot, end)
 
