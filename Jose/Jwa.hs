@@ -21,11 +21,11 @@ data Alg = Signed JwsAlg | Encrypted JweAlg deriving (Eq, Show)
 
 -- | A subset of the signature algorithms from the
 -- <http://tools.ietf.org/html/draft-ietf-jose-json-web-algorithms-31#section-3 JWA Spec>.
-data JwsAlg = None | HS256 | HS384 | HS512 | RS256 | RS384 | RS512 deriving (Eq, Show)
+data JwsAlg = None | HS256 | HS384 | HS512 | RS256 | RS384 | RS512 deriving (Eq, Show, Read)
 
 -- | A subset of the key management algorithms from the
 -- <http://tools.ietf.org/html/draft-ietf-jose-json-web-algorithms-31#section-5 JWA Spec>.
-data JweAlg = RSA1_5 | RSA_OAEP deriving (Eq, Show)
+data JweAlg = RSA1_5 | RSA_OAEP deriving (Eq, Show, Read)
 
 -- TODO: AES_192_CBC_HMAC_SHA_384 ??
 -- | Content encryption algorithms from the
@@ -60,7 +60,7 @@ instance ToJSON Alg where
 instance FromJSON JwsAlg where
     parseJSON = withText "JwsAlg" $ \t -> case lookup t algs of
         Just (Signed a) -> pure a
-        _               -> fail ("Unsupported JWS algorithm")
+        _               -> fail "Unsupported JWS algorithm"
 
 instance ToJSON JwsAlg where
     toJSON a = String . algName $ Signed a
@@ -68,7 +68,7 @@ instance ToJSON JwsAlg where
 instance FromJSON JweAlg where
     parseJSON = withText "JweAlg" $ \t -> case lookup t algs of
         Just (Encrypted a) -> pure a
-        _                  -> fail ("Unsupported JWE algorithm")
+        _                  -> fail "Unsupported JWE algorithm"
 
 instance ToJSON JweAlg where
     toJSON a = String . algName $ Encrypted a
