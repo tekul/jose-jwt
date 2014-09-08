@@ -27,8 +27,9 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Data.HashMap.Strict as H
 import Data.Int (Int64)
 import Data.Time.Clock.POSIX
-import GHC.Generics
 import Data.Text (Text)
+import Data.Vector (singleton)
+import GHC.Generics
 
 import Jose.Jwa (JweAlg(..), JwsAlg (..), Enc(..))
 
@@ -77,15 +78,19 @@ instance ToJSON IntDate where
 data JwtClaims = JwtClaims
     { jwtIss :: !(Maybe Text)
     , jwtSub :: !(Maybe Text)
-    , jwtAud :: !(Maybe Text)
+    , jwtAud :: !(Maybe [Text])
     , jwtExp :: !(Maybe IntDate)
     , jwtNbf :: !(Maybe IntDate)
     , jwtIat :: !(Maybe IntDate)
     , jwtJti :: !(Maybe Text)
     } deriving (Show, Generic)
 
+-- Deal with the case where "aud" may be a single value rather than an array
 instance FromJSON JwtClaims where
-    parseJSON = genericParseJSON claimsOptions
+    parseJSON v@(Object o) = case H.lookup "aud" o of
+        Just (a@(String _)) -> genericParseJSON claimsOptions $ Object $ H.insert "aud" (Array $ singleton a) o
+        _                   -> genericParseJSON claimsOptions v
+    parseJSON _            = fail "JwtClaims must be an object"
 
 instance ToJSON JwtClaims where
     toJSON = genericToJSON claimsOptions
@@ -100,15 +105,14 @@ defJweHdr :: JweHeader
 defJweHdr = JweHeader RSA_OAEP A128GCM Nothing Nothing Nothing Nothing
 
 -- | Decoding errors.
-data JwtError = --Empty
-                KeyError Text      -- ^ No suitable key or wrong key type
+data JwtError = KeyError Text      -- ^ No suitable key or wrong key type
               | BadDots Int        -- ^ Wrong number of "." characters in the JWT
               | BadHeader          -- ^ Header couldn't be decoded or contains bad data
               | BadClaims          -- ^ Claims part couldn't be decoded or contains bad data
               | BadSignature       -- ^ Signature is invalid
               | BadCrypto          -- ^ A cryptographic operation failed
               | Base64Error String -- ^ A base64 decoding error
-    deriving (Eq, Show)
+                deriving (Eq, Show)
 
 instance ToJSON JwsHeader where
     toJSON = genericToJSON jwsOptions
