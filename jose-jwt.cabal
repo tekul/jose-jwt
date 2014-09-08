@@ -55,6 +55,7 @@ Library
                     , time  >= 1.4
                     , unordered-containers >= 0.2
                     , base64-bytestring >= 1
+                    , vector >= 0.10
   Ghc-Options:        -Wall
 
 Test-suite tests

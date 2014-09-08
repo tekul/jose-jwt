@@ -23,7 +23,8 @@ module Jose.Jws
 where
 
 import Control.Monad (unless)
-import Crypto.PubKey.RSA (PrivateKey, PublicKey)
+import Crypto.PubKey.RSA (PrivateKey(..), PublicKey(..), generateBlinder)
+import Crypto.Random (CPRG)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as BC
@@ -37,7 +38,9 @@ hmacEncode :: JwsAlg       -- ^ The MAC algorithm to use
            -> ByteString   -- ^ The MAC key
            -> ByteString   -- ^ The JWT claims (token content)
            -> ByteString   -- ^ The encoded JWS token
-hmacEncode a key = encode (hmacSign a key) $ defJwsHdr {jwsAlg = a}
+hmacEncode a key payload = B.concat [st, ".", hmacSign a key st]
+  where
+    st = sigTarget a payload
 
 -- | Decodes and validates an HMAC signed JWS.
 hmacDecode :: ByteString          -- ^ The HMAC key
@@ -46,11 +49,22 @@ hmacDecode :: ByteString          -- ^ The HMAC key
 hmacDecode key = decode (\alg -> hmacVerify alg key)
 
 -- | Creates a JWS with an RSA signature.
-rsaEncode :: JwsAlg       -- ^ The RSA algorithm to use
-          -> PrivateKey   -- ^ The key to sign with
-          -> ByteString   -- ^ The JWT claims (token content)
-          -> ByteString   -- ^ The encoded JWS token
-rsaEncode a k = encode (rsaSign a k) $ defJwsHdr {jwsAlg = a}
+rsaEncode :: CPRG g
+          => g
+          -> JwsAlg                           -- ^ The RSA algorithm to use
+          -> PrivateKey                       -- ^ The key to sign with
+          -> ByteString                       -- ^ The JWT claims (token content)
+          -> (Either JwtError ByteString, g)  -- ^ The encoded JWS token
+rsaEncode rng a pk payload = (sign blinder, rng')
+  where
+    (blinder, rng') = generateBlinder rng (public_n $ private_pub pk)
+
+    st = sigTarget a payload
+
+    sign b = case rsaSign (Just b) a pk st of
+        Right sig -> Right $ B.concat [st, ".", B64.encode sig]
+        err       -> err
+
 
 -- | Decode and validate an RSA signed JWS.
 rsaDecode :: PublicKey            -- ^ The key to check the signature with
@@ -58,10 +72,8 @@ rsaDecode :: PublicKey            -- ^ The key to check the signature with
           -> Either JwtError Jws  -- ^ The decoded token if successful
 rsaDecode key = decode (\alg -> rsaVerify alg key)
 
-encode :: (ByteString -> ByteString) -> JwsHeader -> ByteString -> ByteString
-encode sign hdr payload = B.intercalate "." [hdrPayload, B64.encode $ sign hdrPayload]
-  where
-    hdrPayload = B.intercalate "." $ map B64.encode [encodeHeader hdr, payload]
+sigTarget :: JwsAlg -> ByteString -> ByteString
+sigTarget a payload = B.intercalate "." $ map B64.encode [encodeHeader $ defJwsHdr {jwsAlg = a}, payload]
 
 type JwsVerifier = JwsAlg -> ByteString -> ByteString -> Bool
 

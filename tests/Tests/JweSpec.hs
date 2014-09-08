@@ -4,7 +4,7 @@
 module Tests.JweSpec where
 
 import Control.Applicative
-import Data.Aeson (eitherDecode)
+import Data.Aeson (eitherDecode, decodeStrict')
 import Data.Bits (xor)
 import Data.Either.Combinators
 import qualified Data.ByteString as B
@@ -52,13 +52,18 @@ spec =
         Jwe.rsaEncode g RSA_OAEP A256GCM a1PubKey a1Payload @?= (a1, RNG "")
 
       it "decodes the JWT to the expected header and payload" $ do
-        Jwe.rsaDecode a1PrivKey a1 @?= Right (a1Header, a1Payload)
+        (fst $ Jwe.rsaDecode blinderRNG a1PrivKey a1) @?= Right (a1Header, a1Payload)
 
       it "decodes the JWK to the correct RSA key values" $ do
         let Right (Jwk.RsaPrivateJwk (RSA.PrivateKey pubKey d 0 0 0 0 0) _ _ _) = eitherDecode a1jwk
         RSA.public_n pubKey  @?= a1RsaModulus
         RSA.public_e pubKey  @?= rsaExponent
         d                    @?= a1RsaPrivateExponent
+
+      it "decodes the JWT using the JWK" $ do
+        let Right k1 = eitherDecode a1jwk
+            Just  k2 = decodeStrict' a2jwk
+        (fst $ decode blinderRNG [k2, k1] a1) @?= (Right $ Jwe (a1Header, a1Payload))
 
     context "when using JWE Appendix 2 data" $ do
       let a2Header = defJweHdr {jweAlg = RSA1_5, jweEnc = A128CBC_HS256}
@@ -79,7 +84,7 @@ spec =
         decryptPayload A128CBC_HS256 a2cek a2iv aad a2Tag a2Ciphertext @?= Right a2Payload
 
       it "decodes the JWT to the expected header and payload" $ do
-        Jwe.rsaDecode a2PrivKey a2 @?= Right (a2Header, a2Payload)
+        (fst $ Jwe.rsaDecode blinderRNG a2PrivKey a2) @?= Right (a2Header, a2Payload)
 
     context "when used with quickcheck" $ do
       it "padded msg is always a multiple of 16" $ property $
@@ -92,7 +97,7 @@ spec =
 jweRoundTrip :: RNG -> JWEAlgs -> B.ByteString -> Bool
 jweRoundTrip g (JWEAlgs a e) msg = encodeDecode == Right (defJweHdr {jweAlg = a, jweEnc = e}, msg)
   where
-    encodeDecode = Jwe.rsaDecode a2PrivKey $ fst $ Jwe.rsaEncode g a e a2PubKey msg
+    encodeDecode = fst $ Jwe.rsaDecode blinderRNG a2PrivKey $ fst $ Jwe.rsaEncode g a e a2PubKey msg
 
 -- A decidedly non-random, random number generator which allows specific
 -- sequences of bytes to be supplied which match the JWE test data.
@@ -112,6 +117,8 @@ instance CPRG RNG where
     cprgGenerate = genBytes
     cprgGenerateWithEntropy = undefined
     cprgFork = undefined
+
+blinderRNG = RNG $ B.replicate 2000 255
 
 --------------------------------------------------------------------------------
 -- JWE Appendix 1 Test Data
@@ -166,6 +173,7 @@ a2Tag = B.pack [246, 17, 244, 190, 4, 95, 98, 3, 231, 0, 115, 157, 242, 203, 100
 
 Right a2jweKey = B64.decode "UGhIOguC7IuEvf_NPVaXsGMoLOmwvc1GyqlIKOK1nN94nHPoltGRhWhw7Zx0-kFm1NJn8LE9XShH59_i8J0PH5ZZyNfGy2xGdULU7sHNF6Gp2vPLgNZ__deLKxGHZ7PcHALUzoOegEI-8E66jX2E4zyJKx-YxzZIItRzC5hlRirb6Y5Cl_p-ko3YvkkysZIFNPccxRU7qve1WYPxqbb2Yw8kZqa2rMWI5ng8OtvzlV7elprCbuPhcCdZ6XDP0_F8rkXds2vE4X-ncOIM8hAYHHi29NX0mcKiRaD0-D-ljQTP-cFPgwCp6X-nZZd9OHBv-B3oWh2TbqmScqXMR4gp_A"
 
+a2jwk = "{\"kty\":\"RSA\", \"n\":\"sXchDaQebHnPiGvyDOAT4saGEUetSyo9MKLOoWFsueri23bOdgWp4Dy1WlUzewbgBHod5pcM9H95GQRV3JDXboIRROSBigeC5yjU1hGzHHyXss8UDprecbAYxknTcQkhslANGRUZmdTOQ5qTRsLAt6BTYuyvVRdhS8exSZEy_c4gs_7svlJJQ4H9_NxsiIoLwAEk7-Q3UXERGYw_75IDrGA84-lA_-Ct4eTlXHBIY2EaV7t7LjJaynVJCpkv4LKjTTAumiGUIuQhrNhZLuF_RJLqHpM2kgWFLU7-VTdL1VbC2tejvcI2BlMkEpk1BzBZI0KQB0GaDWFLN-aEAw3vRw\", \"e\":\"AQAB\", \"d\":\"VFCWOqXr8nvZNyaaJLXdnNPXZKRaWCjkU5Q2egQQpTBMwhprMzWzpR8Sxq1OPThh_J6MUD8Z35wky9b8eEO0pwNS8xlh1lOFRRBoNqDIKVOku0aZb-rynq8cxjDTLZQ6Fz7jSjR1Klop-YKaUHc9GsEofQqYruPhzSA-QgajZGPbE_0ZaVDJHfyd7UUBUKunFMScbflYAAOYJqVIVwaYR5zWEEceUjNnTNo_CVSj-VvXLO5VZfCUAVLgW4dpf1SrtZjSt34YLsRarSb127reG_DUwg9Ch-KyvjT1SkHgUWRVGcyly7uvVGRSDwsXypdrNinPA4jlhoNdizK2zF2CWQ\" }"
 
 a2RsaModulus =  22402924734748322419583087865046136971812964522608965289668050862528140628890468829261358173206844190609885548664216273129288787509446229835492005268681636400878070687042995563617837593077316848511917526886594334868053765054121327206058496913599608196082088434862911200952954663261204130886151917541465131565772711448256433529200865576041706962504490609565420543616528240562874975930318078653328569211055310553145904641192292907110395318778917935975962359665382660933281263049927785938817901532807037136641587608303638483543899849101763615990006657357057710971983052920787558713523025279998057051825799400286243909447
 

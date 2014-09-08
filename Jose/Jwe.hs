@@ -16,12 +16,12 @@
 
 module Jose.Jwe where
 
+import Crypto.Cipher.Types (AuthTag(..))
+import Crypto.PubKey.RSA (PrivateKey(..), PublicKey(..), generateBlinder)
+import Crypto.Random.API (CPRG)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as BC
-import Crypto.Cipher.Types (AuthTag(..))
-import Crypto.PubKey.RSA (PrivateKey, PublicKey)
-import Crypto.Random.API (CPRG)
 import Jose.Types
 import qualified Jose.Internal.Base64 as B64
 import Jose.Internal.Crypto
@@ -45,22 +45,28 @@ rsaEncode rng a e pubKey claims = (jwe, rng'')
     jwe = B.intercalate "." $ map B64.encode [hdr, jweKey, iv, ct, sig]
 
 -- | Decrypts a JWE.
-rsaDecode :: PrivateKey          -- ^ Decryption key
-          -> ByteString          -- ^ The encoded JWE
-          -> Either JwtError Jwe -- ^ The decoded JWT, unless an error occurs
-rsaDecode rsaKey jwt = do
-    checkDots
-    let components = BC.split '.' jwt
-    let aad = head components
-    [h, ek, iv, payload, sig] <- mapM B64.decode components
-    hdr <- case parseHeader h of
-        Right (JweH jweHdr) -> return jweHdr
-        _                   -> Left BadHeader
-    let alg = jweAlg hdr
-    cek    <- rsaDecrypt alg rsaKey ek
-    claims <- decryptPayload (jweEnc hdr) cek iv aad sig payload
-    return (hdr, claims)
+rsaDecode :: CPRG g
+          => g
+          -> PrivateKey               -- ^ Decryption key
+          -> ByteString               -- ^ The encoded JWE
+          -> (Either JwtError Jwe, g) -- ^ The decoded JWT, unless an error occurs
+rsaDecode rng pk jwt = (decode blinder, rng')
   where
+    (blinder, rng') = generateBlinder rng (public_n $ private_pub pk)
+
+    decode b = do
+        checkDots
+        let components = BC.split '.' jwt
+        let aad = head components
+        [h, ek, iv, payload, sig] <- mapM B64.decode components
+        hdr <- case parseHeader h of
+            Right (JweH jweHdr) -> return jweHdr
+            _                   -> Left BadHeader
+        let alg = jweAlg hdr
+        cek    <- rsaDecrypt (Just b) alg pk ek
+        claims <- decryptPayload (jweEnc hdr) cek iv aad sig payload
+        return (hdr, claims)
+
     checkDots = case BC.count '.' jwt of
                     4 -> Right ()
                     _ -> Left $ BadDots 4

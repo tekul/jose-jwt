@@ -39,10 +39,11 @@ type Jws = (JwsHeader, ByteString)
 type Jwe = (JweHeader, ByteString)
 
 -- | A decoded JWT which can be either a JWE or a JWS.
-data Jwt = Jws !Jws | Jwe !Jwe
+data Jwt = Jws !Jws | Jwe !Jwe deriving (Show, Eq)
 
 data JwtHeader = JweH JweHeader
                | JwsH JwsHeader
+                 deriving (Show)
 
 
 -- | Header content for a JWS.
