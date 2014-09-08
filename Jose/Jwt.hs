@@ -8,12 +8,14 @@ module Jose.Jwt
     )
 where
 
-import Control.Monad (when)
+import Control.Monad.Except
+import Control.Monad.State.Strict
 import Crypto.PubKey.RSA (PrivateKey(..))
+import Crypto.Random (CPRG)
 import Data.Aeson (decodeStrict')
 import Data.ByteString (ByteString)
 import Data.List (find)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (isJust, fromJust)
 import qualified Data.ByteString.Char8 as BC
 
 import qualified Jose.Internal.Base64 as B64
@@ -28,35 +30,38 @@ import qualified Jose.Jwe as Jwe
 -- Locates a matching key by header @kid@ value where possible
 -- or by suitable key type.
 -- The JWK @use@ and @alg@ options are currently ignored.
-decode :: [Jwk]                -- ^ The keys to use for decoding
-       -> ByteString           -- ^ The encoded JWT
-       -> Either JwtError Jwt  -- ^ The decoded JWT, if successful
-decode keySet jwt = do
+decode :: CPRG g
+       => g
+       -> [Jwk]                    -- ^ The keys to use for decoding
+       -> ByteString               -- ^ The encoded JWT
+       -> (Either JwtError Jwt, g) -- ^ The decoded JWT, if successful
+decode rng keySet jwt = flip runState rng $ runExceptT $ do
     let components = BC.split '.' jwt
-    when (length components < 3) $ Left $ BadDots 2
-    hdr <- B64.decode (head components) >>= parseHeader
-    ks  <- findKeys hdr keySet
+    when (length components < 3) $ throwError $ BadDots 2
+    hdr <- either throwError return $ B64.decode (head components) >>= parseHeader
+    ks  <- either throwError return $ findKeys hdr keySet
     -- Now we have one or more suitable keys.
     -- Try each in turn until successful
     let decodeWith = case hdr of
                        JwsH _ -> decodeWithJws
                        _      -> decodeWithJwe
-    let decodings = map decodeWith ks
-    fromMaybe (Left $ KeyError "None of the keys was able to decode the JWT") $ find isRight decodings
+    decodings <- mapM decodeWith ks
+    maybe (throwError $ KeyError "None of the keys was able to decode the JWT") (return . fromJust) $ find isJust decodings
   where
-    decodeWithJws :: Jwk -> Either JwtError Jwt
-    decodeWithJws k = fmap Jws $ case k of
+    decodeWithJws :: CPRG g => Jwk -> ExceptT JwtError (State g) (Maybe Jwt)
+    decodeWithJws k = either (const $ return Nothing) (return . Just . Jws) $ case k of
         RsaPublicJwk  kPub _ _ _ -> Jws.rsaDecode kPub jwt
         RsaPrivateJwk kPr  _ _ _ -> Jws.rsaDecode (private_pub kPr) jwt
         SymmetricJwk  kb   _ _ _ -> Jws.hmacDecode kb jwt
 
-    decodeWithJwe :: Jwk -> Either JwtError Jwt
-    decodeWithJwe k = fmap Jwe $ case k of
-        RsaPrivateJwk kPr _ _ _ -> Jwe.rsaDecode kPr jwt
-        _                       -> Left $ KeyError "Not a JWE key (shouldn't happen)"
-
-    isRight (Left _)  = False
-    isRight (Right _) = True
+    decodeWithJwe :: CPRG g => Jwk -> ExceptT JwtError (State g) (Maybe Jwt)
+    decodeWithJwe k = case k of
+        RsaPrivateJwk kPr _ _ _ -> do
+            g <- lift get
+            let (e, g') = Jwe.rsaDecode g kPr jwt
+            lift $ put g'
+            either (const $ return Nothing) (return . Just . Jwe) e
+        _                       -> throwError $ KeyError "Not a JWE key (shouldn't happen)"
 
 -- | Convenience function to return the claims contained in a JWT.
 -- This is required in situations such as client assertion authentication,

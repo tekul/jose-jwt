@@ -42,7 +42,7 @@ hmacSign :: JwsAlg      -- ^ HMAC algorithm to use
          -> ByteString  -- ^ Key
          -> ByteString  -- ^ The message/content
          -> ByteString  -- ^ HMAC output
-hmacSign a k m =  hmac (hashFunction hash) 64 k m
+hmacSign a k m = hmac (hashFunction hash) 64 k m
   where
     hash = fromMaybe (error $ "Not an HMAC alg: " ++ show a) $ lookup a hmacHashes
 
@@ -57,18 +57,22 @@ hmacVerify a key msg sig = case lookup a hmacHashes of
     Just _  -> constEqBytes (hmacSign a key msg) sig
     Nothing -> False
 
--- TODO: Check PKCS15.sign error conditions to see whether they apply
-
 -- | Sign a message using an RSA private key.
-rsaSign :: JwsAlg         -- ^ Algorithm to use. Must be one of @RSA256@, @RSA384@ or @RSA512@.
-        -> RSA.PrivateKey -- ^ Private key to sign with
-        -> ByteString     -- ^ Message to sign
-        -> ByteString     -- ^ The signature
-rsaSign a key = either (error "Signing failed") id . PKCS15.sign Nothing hash key
+--
+-- The failure condition should only occur if the RSA key is too small,
+-- causing the padding of the signature to fail. With real-world RSA keys
+-- this shouldn't happen in practice.
+rsaSign :: Maybe RSA.Blinder  -- ^ RSA blinder
+        -> JwsAlg             -- ^ Algorithm to use. Must be one of @RSA256@, @RSA384@ or @RSA512@
+        -> RSA.PrivateKey     -- ^ Private key to sign with
+        -> ByteString         -- ^ Message to sign
+        -> Either JwtError ByteString    -- ^ The signature
+rsaSign blinder a key msg = either (const $ Left BadCrypto) Right $ PKCS15.sign blinder hash key msg
   where
     hash = fromMaybe (error $ "Not an RSA Algorithm " ++ show a) $ lookupRSAHash a
 
 -- | Verify the signature for a message using an RSA public key.
+--
 -- Returns false if the check fails or if the 'Alg' value is not
 -- an RSA signature algorithm.
 rsaVerify :: JwsAlg        -- ^ The signature algorithm. Used to obtain the hash function.
@@ -91,7 +95,8 @@ lookupRSAHash alg = case alg of
     _     -> Nothing
 
 -- | Generates the symmetric key (content management key) and IV
--- used to encrypt a message.
+--
+-- Used to encrypt a message.
 generateCmkAndIV :: CPRG g
                  => g   -- ^ The random number generator
                  -> Enc -- ^ The encryption algorithm to be used
@@ -128,17 +133,16 @@ rsaEncrypt gen a pubKey content = (ct, g')
     (Right ct, g') = encrypt pubKey content
 
 -- | Decrypts an RSA encrypted message.
-rsaDecrypt :: JweAlg                       -- ^ The RSA algorithm to use
-           -> RSA.PrivateKey               -- ^ The decryption key
-           -> B.ByteString                 -- ^ The encrypted content
-           -> Either JwtError B.ByteString -- ^ The decrypted key
-rsaDecrypt a rsaKey jweKey = do
-    decrypt <- decryptAlg
-    either (\_ -> Left BadCrypto) Right $ decrypt rsaKey jweKey
+rsaDecrypt :: Maybe RSA.Blinder
+           -> JweAlg                        -- ^ The RSA algorithm to use
+           -> RSA.PrivateKey                -- ^ The decryption key
+           -> B.ByteString                  -- ^ The encrypted content
+           -> Either JwtError B.ByteString  -- ^ The decrypted key
+rsaDecrypt blinder a rsaKey jweKey = either (const $ Left BadCrypto) Right $ decrypt rsaKey jweKey
   where
-    decryptAlg = case a of
-      RSA1_5   -> Right $ PKCS15.decrypt Nothing
-      RSA_OAEP -> Right $ OAEP.decrypt Nothing oaepParams
+    decrypt = case a of
+        RSA1_5   -> PKCS15.decrypt blinder
+        RSA_OAEP -> OAEP.decrypt blinder oaepParams
 
 oaepParams :: OAEP.OAEPParams
 oaepParams = OAEP.defaultOAEPParams (hashFunction hashDescrSHA1)
@@ -210,7 +214,7 @@ unpad bs
     (pt, padding) = B.splitAt (len - padLen) bs
 
 pad :: ByteString -> ByteString
-pad bs = B.append bs $ padding
+pad bs = B.append bs padding
   where
     lastBlockSize = B.length bs `mod` 16
     padByte       = fromIntegral $ 16 - lastBlockSize :: Word8

@@ -105,7 +105,7 @@ instance FromJSON KeyType where
         case t of
           "RSA" -> pure Rsa
           "EC"  -> pure Ec
-          "oct" -> pure Ec
+          "oct" -> pure Oct
           _     -> fail "unsupported key type"
 
 instance ToJSON KeyType where

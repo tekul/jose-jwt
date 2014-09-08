@@ -6,6 +6,7 @@ module Tests.JwsSpec where
 import Test.Hspec
 import Test.HUnit hiding (Test)
 
+import Data.Aeson (decodeStrict')
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 ()
 import qualified Crypto.Hash.SHA256 as SHA256
@@ -13,11 +14,22 @@ import Crypto.MAC.HMAC (hmac)
 import qualified Crypto.PubKey.RSA as RSA
 import qualified Crypto.PubKey.RSA.PKCS15 as RSAPKCS15
 import Crypto.PubKey.HashDescr
+import Crypto.Random (CPRG(..))
 
 import Jose.Jwt
 import Jose.Jwa
 import qualified Jose.Internal.Base64 as B64
 import qualified Jose.Jws as Jws
+
+-- Test CPRG which just produces a stream of '255' bytes
+data RNG = RNG deriving (Show, Eq)
+
+instance CPRG RNG where
+    cprgCreate              = undefined
+    cprgSetReseedThreshold  = undefined
+    cprgGenerate n g        = (B.replicate n 255, g)
+    cprgGenerateWithEntropy = undefined
+    cprgFork                = undefined
 
 {-- Examples from the JWS appendix A --}
 
@@ -25,11 +37,16 @@ spec :: Spec
 spec =
     describe "JWS encoding and decoding" $ do
       context "when using JWS Appendix A.1 data" $ do
+        let a11decoded = Right (defJwsHdr {jwsAlg = HS256, jwsTyp = Just "JWT"}, a11Payload)
         it "decodes the JWT to the expected header and payload" $
-          Jws.hmacDecode hmacKey a11 @?= Right (defJwsHdr {jwsAlg = HS256, jwsTyp = Just "JWT"}, a11Payload)
+          Jws.hmacDecode hmacKey a11 @?= a11decoded
 
         it "encodes the payload to the expected JWT" $
           encode a11mac a11Header a11Payload @?= a11
+
+        it "decodes the payload using the JWK" $ do
+          let Just k11 = decodeStrict' a11jwk
+          fst (decode RNG [k11] a11) @?= fmap Jws a11decoded
 
       context "when using JWS Appendix A.2 data" $ do
         it "decodes the JWT to the expected header and payload" $
@@ -52,11 +69,14 @@ encode sign hdr payload = B.intercalate "." [hdrPayload, B64.encode $ sign hdrPa
   where
     hdrPayload = B.intercalate "." $ map B64.encode [hdr, payload]
 
-rsaRoundTrip a msg = Jws.rsaDecode rsaPublicKey (Jws.rsaEncode a rsaPrivateKey msg) @?= Right (defJwsHdr {jwsAlg = a}, msg)
+rsaRoundTrip a msg = let Right encoded = fst $ Jws.rsaEncode RNG a rsaPrivateKey msg
+                     in  Jws.rsaDecode rsaPublicKey encoded @?= Right (defJwsHdr {jwsAlg = a}, msg)
 
 a11Header = "{\"typ\":\"JWT\",\r\n \"alg\":\"HS256\"}" :: B.ByteString
 a11Payload = "{\"iss\":\"joe\",\r\n \"exp\":1300819380,\r\n \"http://example.com/is_root\":true}"
 a11 = "eyJ0eXAiOiJKV1QiLA0KICJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJqb2UiLA0KICJleHAiOjEzMDA4MTkzODAsDQogImh0dHA6Ly9leGFtcGxlLmNvbS9pc19yb290Ijp0cnVlfQ.dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
+a11jwk = "{\"kty\":\"oct\", \"k\":\"AyM1SysPpbyDfgZld3umj1qzKObwVMkoqQ-EstJQLr_T-1qS0gZH75aKtMN3Yj0iPS4hcgUuTwjAzZr1Z9CAow\" }"
+
 
 a21Header = "{\"alg\":\"RS256\"}" :: B.ByteString
 a21Payload = a11Payload
