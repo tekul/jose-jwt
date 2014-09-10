@@ -6,13 +6,13 @@
 --
 -- >>> import Jose.Jws
 -- >>> import Jose.Jwa
--- >>> let jwt = hmacEncode HS256 "secretmackey" "secret claims"
+-- >>> let Right jwt = hmacEncode HS256 "secretmackey" "public claims"
 -- >>> jwt
--- "eyJhbGciOiJIUzI1NiJ9.c2VjcmV0IGNsYWltcw.Hk9VZbfMHEC_IGVHnAi25HgWR91XMneqYCl7F5izQkM"
+-- "eyJhbGciOiJIUzI1NiJ9.cHVibGljIGNsYWltcw.GDV7RdBrCYfCtFCZZGPy_sWry4GwfX3ckMywXUyxBsc"
 -- >>> hmacDecode "wrongkey" jwt
 -- Left BadSignature
 -- >>> hmacDecode "secretmackey" jwt
--- Right (JwsHeader {jwsAlg = HS256, jwsTyp = Nothing, jwsCty = Nothing, jwsKid = Nothing},"secret claims")
+-- Right (JwsHeader {jwsAlg = HS256, jwsTyp = Nothing, jwsCty = Nothing, jwsKid = Nothing},"public claims")
 
 module Jose.Jws
     ( hmacEncode
@@ -37,7 +37,7 @@ import Jose.Jwa
 -- | Create a JWS with an HMAC for validation.
 hmacEncode :: JwsAlg       -- ^ The MAC algorithm to use
            -> ByteString   -- ^ The MAC key
-           -> ByteString   -- ^ The JWT claims (token content)
+           -> ByteString   -- ^ The public JWT claims (token content)
            -> Either JwtError ByteString   -- ^ The encoded JWS token
 hmacEncode a key payload = let st = sigTarget a payload
                            in  (\mac -> B.concat [st, ".", B64.encode mac]) <$> hmacSign a key st
@@ -53,7 +53,7 @@ rsaEncode :: CPRG g
           => g
           -> JwsAlg                           -- ^ The RSA algorithm to use
           -> PrivateKey                       -- ^ The key to sign with
-          -> ByteString                       -- ^ The JWT claims (token content)
+          -> ByteString                       -- ^ The public JWT claims (token content)
           -> (Either JwtError ByteString, g)  -- ^ The encoded JWS token
 rsaEncode rng a pk payload = (sign blinder, rng')
   where
