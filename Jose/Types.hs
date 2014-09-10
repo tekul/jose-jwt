@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, DeriveGeneric #-}
+{-# LANGUAGE OverloadedStrings, DeriveGeneric, FlexibleContexts #-}
 {-# OPTIONS_HADDOCK prune #-}
 
 module Jose.Types
@@ -19,6 +19,7 @@ module Jose.Types
 where
 
 import Control.Applicative
+import Control.Monad.Except
 import Data.Aeson
 import Data.Aeson.Types
 import Data.Char (toUpper, toLower)
@@ -135,8 +136,8 @@ instance FromJSON JwtHeader where
 encodeHeader :: ToJSON a => a -> ByteString
 encodeHeader h = BL.toStrict $ encode h
 
-parseHeader :: ByteString -> Either JwtError JwtHeader
-parseHeader hdr = maybe (Left BadHeader) Right $ decodeStrict hdr
+parseHeader :: MonadError JwtError m => ByteString -> m JwtHeader
+parseHeader hdr = maybe (throwError BadHeader) return $ decodeStrict hdr
 
 jwsOptions :: Options
 jwsOptions = prefixOptions "jws"

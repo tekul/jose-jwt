@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, FlexibleContexts #-}
 {-# OPTIONS_HADDOCK prune #-}
 
 module Jose.Jwt
@@ -38,8 +38,8 @@ decode :: CPRG g
 decode rng keySet jwt = flip runState rng $ runExceptT $ do
     let components = BC.split '.' jwt
     when (length components < 3) $ throwError $ BadDots 2
-    hdr <- either throwError return $ B64.decode (head components) >>= parseHeader
-    ks  <- either throwError return $ findKeys hdr keySet
+    hdr <- B64.decode (head components) >>= parseHeader
+    ks  <- findKeys hdr keySet
     -- Now we have one or more suitable keys.
     -- Try each in turn until successful
     let decodeWith = case hdr of
@@ -81,12 +81,12 @@ decodeClaims jwt = do
     parseClaims bs = maybe (Left BadClaims) Right $ decodeStrict' bs
 
 
-findKeys :: JwtHeader -> [Jwk] -> Either JwtError [Jwk]
+findKeys :: MonadError JwtError m => JwtHeader -> [Jwk] -> m [Jwk]
 findKeys hdr jwks = checkKeys $ case hdr of
     JweH h -> findMatchingJweKeys jwks h
     JwsH h -> findMatchingJwsKeys jwks h
   where
     -- TODO Move checks to JWK and support better error messages
-    checkKeys [] = Left $ KeyError "No suitable key was found to decode the JWT"
+    checkKeys [] = throwError $ KeyError "No suitable key was found to decode the JWT"
     checkKeys ks = return ks
 

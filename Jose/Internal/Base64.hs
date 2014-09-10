@@ -1,10 +1,11 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, FlexibleContexts #-}
 {-# OPTIONS_HADDOCK hide #-}
 
 -- | JWT-style base64 encoding and decoding
 
 module Jose.Internal.Base64 where
 
+import Control.Monad.Except
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as BC
@@ -22,8 +23,8 @@ encode = strip . B64.encode
       _   -> bs
 
 -- | Base64 decode.
-decode :: ByteString -> Either JwtError ByteString
-decode bs = either (Left . Base64Error) Right $ B64.decode bsPadded
+decode :: MonadError JwtError m => ByteString -> m ByteString
+decode bs = either (throwError . Base64Error) return $ B64.decode bsPadded
   where
     bsPadded = case B.length bs `mod` 4 of
       3 -> bs `BC.snoc` '='
