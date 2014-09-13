@@ -107,6 +107,7 @@ defJweHdr = JweHeader RSA_OAEP A128GCM Nothing Nothing Nothing Nothing
 
 -- | Decoding errors.
 data JwtError = KeyError Text      -- ^ No suitable key or wrong key type
+              | BadAlgorithm Text  -- ^ The supplied algorithm is invalid
               | BadDots Int        -- ^ Wrong number of "." characters in the JWT
               | BadHeader          -- ^ Header couldn't be decoded or contains bad data
               | BadClaims          -- ^ Claims part couldn't be decoded or contains bad data

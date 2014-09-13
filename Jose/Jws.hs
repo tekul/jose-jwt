@@ -22,6 +22,7 @@ module Jose.Jws
     )
 where
 
+import Control.Applicative
 import Control.Monad (unless)
 import Crypto.PubKey.RSA (PrivateKey(..), PublicKey(..), generateBlinder)
 import Crypto.Random (CPRG)
@@ -37,10 +38,9 @@ import Jose.Jwa
 hmacEncode :: JwsAlg       -- ^ The MAC algorithm to use
            -> ByteString   -- ^ The MAC key
            -> ByteString   -- ^ The JWT claims (token content)
-           -> ByteString   -- ^ The encoded JWS token
-hmacEncode a key payload = B.concat [st, ".", hmacSign a key st]
-  where
-    st = sigTarget a payload
+           -> Either JwtError ByteString   -- ^ The encoded JWS token
+hmacEncode a key payload = let st = sigTarget a payload
+                           in  (\mac -> B.concat [st, ".", mac]) <$> hmacSign a key st
 
 -- | Decodes and validates an HMAC signed JWS.
 hmacDecode :: ByteString          -- ^ The HMAC key

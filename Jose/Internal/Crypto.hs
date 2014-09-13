@@ -30,8 +30,8 @@ import           Crypto.MAC.HMAC (hmac)
 import           Data.Byteable (constEqBytes)
 import           Data.ByteString (ByteString)
 import qualified Data.ByteString as B
-import           Data.Maybe (fromMaybe)
 import qualified Data.Serialize as Serialize
+import qualified Data.Text as T
 import           Data.Word (Word64, Word8)
 
 import           Jose.Jwa
@@ -41,10 +41,10 @@ import           Jose.Types (JwtError(..))
 hmacSign :: JwsAlg      -- ^ HMAC algorithm to use
          -> ByteString  -- ^ Key
          -> ByteString  -- ^ The message/content
-         -> ByteString  -- ^ HMAC output
-hmacSign a k m = hmac (hashFunction hash) 64 k m
-  where
-    hash = fromMaybe (error $ "Not an HMAC alg: " ++ show a) $ lookup a hmacHashes
+         -> Either JwtError ByteString  -- ^ HMAC output
+hmacSign a k m = do
+    hash <- maybe (Left $ BadAlgorithm $ T.pack $ "Not an HMAC algorithm: " ++ show a) return $ lookup a hmacHashes
+    return $ hmac (hashFunction hash) 64 k m
 
 -- | Verify the HMAC for a given message.
 -- Returns false if the MAC is incorrect or the 'Alg' is not an HMAC.
@@ -53,23 +53,22 @@ hmacVerify :: JwsAlg      -- ^ HMAC Algorithm to use
            -> ByteString  -- ^ The message/content
            -> ByteString  -- ^ The signature to check
            -> Bool        -- ^ Whether the signature is correct
-hmacVerify a key msg sig = case lookup a hmacHashes of
-    Just _  -> constEqBytes (hmacSign a key msg) sig
-    Nothing -> False
+hmacVerify a key msg sig = either (const False) (`constEqBytes` sig) $ hmacSign a key msg
 
 -- | Sign a message using an RSA private key.
 --
--- The failure condition should only occur if the RSA key is too small,
--- causing the padding of the signature to fail. With real-world RSA keys
--- this shouldn't happen in practice.
+-- The failure condition should only occur if the algorithm is not an RSA
+-- algorithm, or the RSA key is too small, causing the padding of the
+-- signature to fail. With real-world RSA keys this shouldn't happen in practice.
 rsaSign :: Maybe RSA.Blinder  -- ^ RSA blinder
         -> JwsAlg             -- ^ Algorithm to use. Must be one of @RSA256@, @RSA384@ or @RSA512@
         -> RSA.PrivateKey     -- ^ Private key to sign with
         -> ByteString         -- ^ Message to sign
         -> Either JwtError ByteString    -- ^ The signature
-rsaSign blinder a key msg = either (const $ Left BadCrypto) Right $ PKCS15.sign blinder hash key msg
+rsaSign blinder a key msg = do
+    hash <- maybe (Left $ BadAlgorithm $ T.pack $ "Not an RSA algorithm: " ++ show a) return $ lookupRSAHash a
+    either (const $ Left BadCrypto) Right $ PKCS15.sign blinder hash key msg
   where
-    hash = fromMaybe (error $ "Not an RSA Algorithm " ++ show a) $ lookupRSAHash a
 
 -- | Verify the signature for a message using an RSA public key.
 --
@@ -159,20 +158,21 @@ decryptPayload :: Enc        -- ^ Encryption algorithm
                -> Either JwtError ByteString
 decryptPayload e cek iv aad sig ct = do
     (plaintext, tag) <- case e of
-        A128GCM -> decryptedGCM
-        A256GCM -> decryptedGCM
-        _       -> decryptedCBC
+        A128GCM        -> decryptedGCM
+        A256GCM        -> decryptedGCM
+        A128CBC_HS256  -> decryptedCBC 16 hashDescrSHA256
+        A256CBC_HS512  -> decryptedCBC 32 hashDescrSHA512
     if tag == AuthTag sig
       then return plaintext
       else Left BadSignature
   where
     decryptedGCM = Right $ AES.decryptGCM (AES.initAES cek) iv aad ct
 
-    decryptedCBC = do
+    decryptedCBC l h = do
       let (macKey, encKey) = B.splitAt (B.length cek `div` 2) cek
       let al = fromIntegral (B.length aad) * 8 :: Word64
       plaintext <- unpad $ AES.decryptCBC (AES.initAES encKey) iv ct
-      let mac = authTag e macKey $ B.concat [aad, iv, ct, Serialize.encode al]
+      let mac = authTag l h macKey $ B.concat [aad, iv, ct, Serialize.encode al]
       return (plaintext, mac)
 
 -- | Encrypt a message using AES.
@@ -183,24 +183,19 @@ encryptPayload :: Enc                   -- ^ Encryption algorithm
                -> ByteString            -- ^ The message/JWT claims
                -> (ByteString, AuthTag) -- ^ Ciphertext claims and signature tag
 encryptPayload e cek iv aad msg = case e of
-    A128GCM -> aesgcm
-    A256GCM -> aesgcm
-    _       -> (aescbc, sig)
+    A128GCM        -> aesgcm
+    A256GCM        -> aesgcm
+    A128CBC_HS256  -> (aescbc, sig 16 hashDescrSHA256)
+    A256CBC_HS512  -> (aescbc, sig 32 hashDescrSHA512)
   where
     aesgcm = AES.encryptGCM (AES.initAES cek) iv aad msg
     (macKey, encKey) = B.splitAt (B.length cek `div` 2) cek
     aescbc = AES.encryptCBC (AES.initAES encKey) iv (pad msg)
     al     = fromIntegral (B.length aad) * 8 :: Word64
-    sig = authTag e macKey $ B.concat [aad, iv, aescbc, Serialize.encode al]
+    sig l h = authTag l h macKey $ B.concat [aad, iv, aescbc, Serialize.encode al]
 
-authTag :: Enc -> ByteString -> ByteString -> AuthTag
-authTag e k m = AuthTag $ B.take tLen $ hmacSign a k m
-  where
-    (tLen, a) = case e of
-        A128CBC_HS256 -> (16, HS256)
-        -- A192_CBC_HS384 -> (24, HS384)
-        A256CBC_HS512 -> (32, HS512)
-        _             -> error "TODO"
+authTag :: Int -> HashDescr -> ByteString -> ByteString -> AuthTag
+authTag l h k m = AuthTag $ B.take l $ hmac (hashFunction h) 64 k m
 
 unpad :: ByteString -> Either JwtError ByteString
 unpad bs
