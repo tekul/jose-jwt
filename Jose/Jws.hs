@@ -46,7 +46,7 @@ hmacEncode a key payload = B.concat [st, ".", hmacSign a key st]
 hmacDecode :: ByteString          -- ^ The HMAC key
            -> ByteString          -- ^ The JWS token to decode
            -> Either JwtError Jws -- ^ The decoded token if successful
-hmacDecode key = decode (\alg -> hmacVerify alg key)
+hmacDecode key = decode (`hmacVerify` key)
 
 -- | Creates a JWS with an RSA signature.
 rsaEncode :: CPRG g
@@ -70,7 +70,7 @@ rsaEncode rng a pk payload = (sign blinder, rng')
 rsaDecode :: PublicKey            -- ^ The key to check the signature with
           -> ByteString           -- ^ The encoded JWS
           -> Either JwtError Jws  -- ^ The decoded token if successful
-rsaDecode key = decode (\alg -> rsaVerify alg key)
+rsaDecode key = decode (`rsaVerify` key)
 
 sigTarget :: JwsAlg -> ByteString -> ByteString
 sigTarget a payload = B.intercalate "." $ map B64.encode [encodeHeader $ defJwsHdr {jwsAlg = a}, payload]

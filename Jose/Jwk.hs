@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, BangPatterns, DeriveGeneric #-}
+{-# LANGUAGE OverloadedStrings, DeriveGeneric #-}
 {-# OPTIONS_HADDOCK prune #-}
 
 module Jose.Jwk
@@ -45,11 +45,11 @@ type KeyId   = Text
 data Jwk = RsaPublicJwk  RSA.PublicKey (Maybe KeyId) (Maybe KeyUse) (Maybe Alg)
          | RsaPrivateJwk RSA.PrivateKey (Maybe KeyId) (Maybe KeyUse) (Maybe Alg)
          | SymmetricJwk  ByteString (Maybe KeyId) (Maybe KeyUse) (Maybe Alg)
-           deriving (Show)
+           deriving (Show, Eq)
 
 data JwkSet = JwkSet
     { keys :: [Jwk]
-    } deriving (Show, Generic)
+    } deriving (Show, Eq, Generic)
 
 canDecodeJws :: JwsAlg -> Jwk -> Bool
 canDecodeJws al jwk = case al of
@@ -64,13 +64,13 @@ canDecodeJws al jwk = case al of
  where
     mustBeRsa       = not mustBeSymmetric
     mustBeSymmetric = case jwk of
-        SymmetricJwk _ _ _ _ -> True
-        _                    -> False
+        SymmetricJwk {} -> True
+        _               -> False
 
 canDecodeJwe :: JweAlg -> Jwk -> Bool
 canDecodeJwe _ jwk = case jwk of    -- JWE
-        RsaPrivateJwk _ _ _ _ -> True
-        _                     -> False
+        RsaPrivateJwk {} -> True
+        _                -> False
 
 jwkId :: Jwk -> Maybe KeyId
 jwkId key = case key of
@@ -92,7 +92,7 @@ findMatchingJwsKeys jwks hdr = filter (canDecodeJws (jwsAlg hdr)) $ filterById (
 
 filterById :: Maybe KeyId -> [Jwk] -> [Jwk]
 filterById keyId jwks = case keyId of
-        Just i  -> maybe jwks (\key -> [key]) $ findKeyById jwks i
+        Just i  -> maybe jwks (:[]) $ findKeyById jwks i
         Nothing -> jwks
 
 findMatchingJweKeys :: [Jwk] -> JweHeader -> [Jwk]
@@ -152,7 +152,7 @@ instance ToJSON JwkBytes where
 instance FromJSON Jwk where
     parseJSON o@(Object _) = do
         jwkData <- parseJSON o :: Parser JwkData
-        case (createJwk jwkData) of
+        case createJwk jwkData of
             Left  err -> fail err
             Right jwk -> return jwk
     parseJSON _            = fail "Jwk must be a JSON object"
@@ -264,5 +264,5 @@ createJwk kd = case kd of
                          ex = os2ip $ bytes eb
                      in RSA.PublicKey (rsaSize m 1) m ex
     rsaSize m i    = if (2 ^ (i * 8)) > m then i else rsaSize m (i+1)
-    os2mip  mb     = maybe 0 (os2ip . bytes) mb
+    os2mip         = maybe 0 (os2ip . bytes)
 
