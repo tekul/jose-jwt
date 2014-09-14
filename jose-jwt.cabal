@@ -1,5 +1,5 @@
 Name:               jose-jwt
-Version:            0.1
+Version:            0.2
 Synopsis:           JSON Object Signing and Encryption Library
 Homepage:           http://github.com/tekul/jose-jwt
 Bug-Reports:        http://github.com/tekul/jose-jwt/issues
