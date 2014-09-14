@@ -40,7 +40,7 @@ hmacEncode :: JwsAlg       -- ^ The MAC algorithm to use
            -> ByteString   -- ^ The JWT claims (token content)
            -> Either JwtError ByteString   -- ^ The encoded JWS token
 hmacEncode a key payload = let st = sigTarget a payload
-                           in  (\mac -> B.concat [st, ".", mac]) <$> hmacSign a key st
+                           in  (\mac -> B.concat [st, ".", B64.encode mac]) <$> hmacSign a key st
 
 -- | Decodes and validates an HMAC signed JWS.
 hmacDecode :: ByteString          -- ^ The HMAC key

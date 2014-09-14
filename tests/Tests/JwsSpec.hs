@@ -48,6 +48,12 @@ spec =
           let Just k11 = decodeStrict' a11jwk
           fst (decode RNG [k11] a11) @?= fmap Jws a11decoded
 
+        it "encodes/decodes using HS512" $
+          hmacRoundTrip HS512 a11Payload
+
+        it "encodes/decodes using HS384" $
+          hmacRoundTrip HS384 a11Payload
+
       context "when using JWS Appendix A.2 data" $ do
         it "decodes the JWT to the expected header and payload" $
           Jws.rsaDecode rsaPublicKey a21 @?= Right (defJwsHdr {jwsAlg = RS256}, a21Payload)
@@ -68,6 +74,9 @@ spec =
 encode sign hdr payload = B.intercalate "." [hdrPayload, B64.encode $ sign hdrPayload]
   where
     hdrPayload = B.intercalate "." $ map B64.encode [hdr, payload]
+
+hmacRoundTrip a msg = let Right encoded = Jws.hmacEncode a "asecretkey" msg
+                     in  Jws.hmacDecode "asecretkey" encoded @?= Right (defJwsHdr {jwsAlg = a}, msg)
 
 rsaRoundTrip a msg = let Right encoded = fst $ Jws.rsaEncode RNG a rsaPrivateKey msg
                      in  Jws.rsaDecode rsaPublicKey encoded @?= Right (defJwsHdr {jwsAlg = a}, msg)
