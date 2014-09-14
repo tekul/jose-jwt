@@ -5,7 +5,7 @@
 
 module Jose.Internal.Base64 where
 
-import Control.Monad.Except
+import Control.Monad.Error
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as BC

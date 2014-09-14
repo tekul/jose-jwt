@@ -19,7 +19,6 @@ module Jose.Types
 where
 
 import Control.Applicative
-import Control.Monad.Except
 import Data.Aeson
 import Data.Aeson.Types
 import Data.Char (toUpper, toLower)
@@ -137,8 +136,8 @@ instance FromJSON JwtHeader where
 encodeHeader :: ToJSON a => a -> ByteString
 encodeHeader h = BL.toStrict $ encode h
 
-parseHeader :: MonadError JwtError m => ByteString -> m JwtHeader
-parseHeader hdr = maybe (throwError BadHeader) return $ decodeStrict hdr
+parseHeader :: ByteString -> Either JwtError JwtHeader
+parseHeader hdr = maybe (Left BadHeader) return $ decodeStrict hdr
 
 jwsOptions :: Options
 jwsOptions = prefixOptions "jws"
