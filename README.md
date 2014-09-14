@@ -9,8 +9,8 @@ A simple JWS example in ghci to illustrate:
     > import Jose.Jws
     > import Jose.Jwa
     > hmacEncode HS384 "somehmackey" "my JSON message"
-    "eyJhbGciOiJIUzM4NCJ9.bXkgSlNPTiBtZXNzYWdl.cNfy9RU8XwOWMr35K562dLOpHnZn3hypK0yrL5cZ3LqLD3FMewiY7Cs45r2auKbw"
-    Jose.Jws Jose.Jwa> hmacDecode "somehmackey" "eyJhbGciOiJIUzM4NCJ9.bXkgSlNPTiBtZXNzYWdl.cNfy9RU8XwOWMr35K562dLOpHnZn3hypK0yrL5cZ3LqLD3FMewiY7Cs45r2auKbw"
+    Right "eyJhbGciOiJIUzM4NCJ9.bXkgSlNPTiBtZXNzYWdl.cNfy9RU8XwOWMr35K562dLOpHnZn3hypK0yrL5cZ3LqLD3FMewiY7Cs45r2auKbw"
+    > hmacDecode "somehmackey" "eyJhbGciOiJIUzM4NCJ9.bXkgSlNPTiBtZXNzYWdl.cNfy9RU8XwOWMr35K562dLOpHnZn3hypK0yrL5cZ3LqLD3FMewiY7Cs45r2auKbw"
     Right (JwsHeader {jwsAlg = HS384, jwsTyp = Nothing, jwsCty = Nothing, jwsKid = Nothing},"my JSON message")
 
 Tring to decode with a different key would return a `Left BadSignature`.

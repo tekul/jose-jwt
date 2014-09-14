@@ -11,7 +11,7 @@
 -- >>> import Crypto.PubKey.RSA
 -- >>> let ((kPub, kPr), g') = generate g 512 65537
 -- >>> let (jwt, g'') = rsaEncode g' RSA_OAEP A128GCM kPub "secret claims"
--- >>> rsaDecode kPr jwt
+-- >>> fst $ rsaDecode g'' kPr jwt
 -- Right (JweHeader {jweAlg = RSA_OAEP, jweEnc = A128GCM, jweTyp = Nothing, jweCty = Nothing, jweZip = Nothing, jweKid = Nothing},"secret claims")
 
 module Jose.Jwe where

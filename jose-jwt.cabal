@@ -84,6 +84,14 @@ Test-suite tests
   Hs-source-dirs:     tests
   Main-is:            tests.hs
 
+Test-suite doctests
+  Default-Language:   Haskell2010
+  Type:               exitcode-stdio-1.0
+  Main-is:            doctests.hs
+  Ghc-options:        -XOverloadedStrings
+  Build-depends:      base
+                    , doctest >= 0.9.11
+
 Benchmark bench-jwt
   Default-Language:   Haskell2010
   Hs-source-dirs:     benchmarks
