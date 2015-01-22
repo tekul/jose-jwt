@@ -19,16 +19,19 @@ module Jose.Jws
     , hmacDecode
     , rsaEncode
     , rsaDecode
+    , ecDecode
     )
 where
 
 import Control.Applicative
 import Control.Monad (unless)
+import qualified Crypto.PubKey.ECC.ECDSA as ECDSA
 import Crypto.PubKey.RSA (PrivateKey(..), PublicKey(..), generateBlinder)
 import Crypto.Random (CPRG)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as BC
+
 import Jose.Types
 import qualified Jose.Internal.Base64 as B64
 import Jose.Internal.Crypto
@@ -72,6 +75,13 @@ rsaDecode :: PublicKey            -- ^ The key to check the signature with
           -> Either JwtError Jws  -- ^ The decoded token if successful
 rsaDecode key = decode (`rsaVerify` key)
 
+
+-- | Decode and validate an EC signed JWS
+ecDecode :: ECDSA.PublicKey       -- ^ The key to check the signature with
+         -> ByteString            -- ^ The encoded JWS
+         -> Either JwtError Jws   -- ^ The decoded token if successful
+ecDecode key = decode (`ecVerify` key)
+
 sigTarget :: JwsAlg -> ByteString -> ByteString
 sigTarget a payload = B.intercalate "." $ map B64.encode [encodeHeader $ defJwsHdr {jwsAlg = a}, payload]
 
@@ -85,7 +95,8 @@ decode verify jwt = do
     [h, payload] <- mapM B64.decode $ BC.split '.' hdrPayload
     hdr <- case parseHeader h of
         Right (JwsH jwsHdr) -> return jwsHdr
-        _                   -> Left BadHeader
+        Right (JweH _)      -> Left (BadHeader "Header is for a JWE")
+        Left e              -> Left e
     if verify (jwsAlg hdr) hdrPayload sigBytes
       then Right (hdr, payload)
       else Left BadSignature

@@ -61,7 +61,8 @@ rsaDecode rng pk jwt = (decode blinder, rng')
         [h, ek, iv, payload, sig] <- mapM B64.decode components
         hdr <- case parseHeader h of
             Right (JweH jweHdr) -> return jweHdr
-            _                   -> Left BadHeader
+            Right (JwsH _)      -> Left (BadHeader "Header is for a JWS")
+            Left e              -> Left e
         let alg = jweAlg hdr
         cek    <- rsaDecrypt (Just b) alg pk ek
         claims <- decryptPayload (jweEnc hdr) cek iv aad sig payload

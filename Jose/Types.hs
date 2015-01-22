@@ -28,6 +28,7 @@ import qualified Data.HashMap.Strict as H
 import Data.Int (Int64)
 import Data.Time.Clock.POSIX
 import Data.Text (Text)
+import qualified Data.Text as T
 import Data.Vector (singleton)
 import GHC.Generics
 
@@ -108,7 +109,7 @@ defJweHdr = JweHeader RSA_OAEP A128GCM Nothing Nothing Nothing Nothing
 data JwtError = KeyError Text      -- ^ No suitable key or wrong key type
               | BadAlgorithm Text  -- ^ The supplied algorithm is invalid
               | BadDots Int        -- ^ Wrong number of "." characters in the JWT
-              | BadHeader          -- ^ Header couldn't be decoded or contains bad data
+              | BadHeader Text     -- ^ Header couldn't be decoded or contains bad data
               | BadClaims          -- ^ Claims part couldn't be decoded or contains bad data
               | BadSignature       -- ^ Signature is invalid
               | BadCrypto          -- ^ A cryptographic operation failed
@@ -137,7 +138,7 @@ encodeHeader :: ToJSON a => a -> ByteString
 encodeHeader h = BL.toStrict $ encode h
 
 parseHeader :: ByteString -> Either JwtError JwtHeader
-parseHeader hdr = maybe (Left BadHeader) return $ decodeStrict hdr
+parseHeader hdr = either (Left . BadHeader . T.pack) return $ eitherDecodeStrict' hdr
 
 jwsOptions :: Options
 jwsOptions = prefixOptions "jws"

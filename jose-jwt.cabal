@@ -46,7 +46,8 @@ Library
                     , containers >= 0.4
                     , cryptohash >= 0.8
                     , crypto-cipher-types >= 0.0.9
-                    , crypto-pubkey >= 0.1.2
+                    , crypto-pubkey >= 0.2.5
+                    , crypto-pubkey-types >= 0.4
                     , crypto-random >= 0.0.7
                     , crypto-numbers >= 0.2
                     , cipher-aes >= 0.2.6

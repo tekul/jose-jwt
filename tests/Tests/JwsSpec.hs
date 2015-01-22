@@ -71,6 +71,12 @@ spec =
         it "encodes/decodes using RS512" $
           rsaRoundTrip RS512 a21Payload
 
+      context "when using JWS Appendix A.3 data" $ do
+        let a31decoded = Right (defJwsHdr {jwsAlg = ES256}, a31Payload)
+        it "decodes the JWT to the expected header and payload" $ do
+          let Just k31 = decodeStrict' a31jwk
+          fst (decode RNG [k31] a31) @?= fmap Jws a31decoded
+
 encode sign hdr payload = B.intercalate "." [hdrPayload, B64.encode $ sign hdrPayload]
   where
     hdrPayload = B.intercalate "." $ map B64.encode [hdr, payload]
@@ -90,6 +96,13 @@ a11jwk = "{\"kty\":\"oct\", \"k\":\"AyM1SysPpbyDfgZld3umj1qzKObwVMkoqQ-EstJQLr_T
 a21Header = "{\"alg\":\"RS256\"}" :: B.ByteString
 a21Payload = a11Payload
 a21 = "eyJhbGciOiJSUzI1NiJ9.eyJpc3MiOiJqb2UiLA0KICJleHAiOjEzMDA4MTkzODAsDQogImh0dHA6Ly9leGFtcGxlLmNvbS9pc19yb290Ijp0cnVlfQ.cC4hiUPoj9Eetdgtv3hF80EGrhuB__dzERat0XF9g2VtQgr9PJbu3XOiZj5RZmh7AAuHIm4Bh-0Qc_lF5YKt_O8W2Fp5jujGbds9uJdbF9CUAr7t1dnZcAcQjbKBYNX4BAynRFdiuB--f_nZLgrnbyTyWzO75vRK5h6xBArLIARNPvkSjtQBMHlb1L07Qe7K0GarZRmB_eSN9383LcOLn6_dO--xi12jzDwusC-eOkHWEsqtFZESc6BfI7noOPqvhJ1phCnvWh6IeYI2w9QOYEUipUTI8np6LbgGY9Fs98rqVt5AXLIhWkWywlVmtVrBp0igcN_IoypGlUPQGe77Rw"
+
+
+a31Header = "{\"alg\":\"ES256\"}" :: B.ByteString
+a31Payload = a11Payload
+a31 = "eyJhbGciOiJFUzI1NiJ9.eyJpc3MiOiJqb2UiLA0KICJleHAiOjEzMDA4MTkzODAsDQogImh0dHA6Ly9leGFtcGxlLmNvbS9pc19yb290Ijp0cnVlfQ.DtEhU3ljbEg8L38VWAfUAqOyKAM6-Xx-F4GawxaepmXFCgfTjDxw5djxLa8ISlSApmWQxfKTUJqPP3-Kg6NU1Q"
+a31jwk = "{\"kty\":\"EC\", \"crv\":\"P-256\", \"x\":\"f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU\", \"y\":\"x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0\", \"d\":\"jpsQnnGQmL-YBIffH1136cspYG6-0iY7X1fCE9-E9LI\" }"
+
 
 hmacKey = B.pack [
     3, 35, 53, 75, 43, 15, 165, 188, 131, 126, 6, 101, 119, 123, 166,

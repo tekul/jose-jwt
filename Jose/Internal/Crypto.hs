@@ -11,6 +11,7 @@ module Jose.Internal.Crypto
     , rsaVerify
     , rsaEncrypt
     , rsaDecrypt
+    , ecVerify
     , encryptPayload
     , decryptPayload
     , generateCmkAndIV
@@ -19,7 +20,10 @@ module Jose.Internal.Crypto
     )
 where
 
+import           Control.Applicative
 import           Crypto.Cipher.Types (AuthTag(..))
+import           Crypto.Number.Serialize (os2ip)
+import qualified Crypto.PubKey.ECC.ECDSA as ECDSA
 import qualified Crypto.PubKey.RSA as RSA
 import qualified Crypto.PubKey.RSA.PKCS15 as PKCS15
 import qualified Crypto.PubKey.RSA.OAEP as OAEP
@@ -83,8 +87,29 @@ rsaVerify a key msg sig = case lookupRSAHash a of
     Just hash -> PKCS15.verify hash key msg sig
     Nothing   -> False
 
+-- | Verify the signature for a message using an EC public key.
+--
+-- Returns false if the check fails or if the 'Alg' value is not
+-- an EC signature algorithm.
+ecVerify :: JwsAlg          -- ^ The signature algorithm. Used to obtain the hash function.
+         -> ECDSA.PublicKey -- ^ The key to check the signature with
+         -> ByteString      -- ^ The message/content
+         -> ByteString      -- ^ The signature to check
+         -> Bool            -- ^ Whether the signature is correct
+ecVerify a key msg sig = case lookupECHash a of
+    Just hash -> let (r, s) = B.splitAt (B.length sig `div` 2) sig
+                 in  ECDSA.verify hash key (ECDSA.Signature (os2ip r) (os2ip s)) msg
+    Nothing   -> False
+
 hmacHashes :: [(JwsAlg, HashDescr)]
 hmacHashes = [(HS256, hashDescrSHA256), (HS384, hashDescrSHA384), (HS512, hashDescrSHA512)]
+
+lookupECHash :: JwsAlg -> Maybe HashFunction
+lookupECHash alg = hashFunction <$> case alg of
+    ES256 -> Just hashDescrSHA256
+    ES384 -> Just hashDescrSHA384
+    ES512 -> Just hashDescrSHA512
+    _     -> Nothing
 
 lookupRSAHash :: JwsAlg -> Maybe HashDescr
 lookupRSAHash alg = case alg of

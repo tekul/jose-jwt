@@ -14,6 +14,8 @@ where
 
 import           Control.Applicative (pure)
 import qualified Crypto.PubKey.RSA as RSA
+import qualified Crypto.PubKey.ECC.ECDSA as ECDSA
+import qualified Crypto.Types.PubKey.ECC as ECC
 import           Crypto.Number.Serialize
 import           Data.Aeson (genericToJSON, Value(..), FromJSON(..), ToJSON(..), withText)
 import           Data.Aeson.Types (Parser, Options (..), defaultOptions)
@@ -44,6 +46,8 @@ type KeyId   = Text
 
 data Jwk = RsaPublicJwk  RSA.PublicKey (Maybe KeyId) (Maybe KeyUse) (Maybe Alg)
          | RsaPrivateJwk RSA.PrivateKey (Maybe KeyId) (Maybe KeyUse) (Maybe Alg)
+         | EcPublicJwk   ECDSA.PublicKey (Maybe KeyId) (Maybe KeyUse) (Maybe Alg)
+         | EcPrivateJwk  ECDSA.KeyPair  (Maybe KeyId) (Maybe KeyUse) (Maybe Alg)
          | SymmetricJwk  ByteString (Maybe KeyId) (Maybe KeyUse) (Maybe Alg)
            deriving (Show, Eq)
 
@@ -59,23 +63,41 @@ canDecodeJws al jwk = case al of
         RS256 -> mustBeRsa
         RS384 -> mustBeRsa
         RS512 -> mustBeRsa
+        ES256 -> mustBeEc
+        ES384 -> mustBeEc
+        ES512 -> mustBeEc
         -- Not yet supported (EC)
         _     -> False
  where
-    mustBeRsa       = not mustBeSymmetric
+    mustBeRsa       = case jwk of
+        RsaPrivateJwk {} -> True
+        RsaPublicJwk  {} -> True
+        _                -> False
     mustBeSymmetric = case jwk of
-        SymmetricJwk {} -> True
-        _               -> False
+        SymmetricJwk {}  -> True
+        _                -> False
+    mustBeEc        = case jwk of
+        EcPrivateJwk {}  -> True
+        EcPublicJwk  {}  -> True
+        _                -> False
 
 canDecodeJwe :: JweAlg -> Jwk -> Bool
 canDecodeJwe _ jwk = case jwk of    -- JWE
         RsaPrivateJwk {} -> True
         _                -> False
 
+curve :: EcCurve -> ECC.Curve
+curve c = ECC.getCurveByName $ case c of
+    P_256 -> ECC.SEC_p256r1
+    P_384 -> ECC.SEC_p384r1
+    P_521 -> ECC.SEC_p521r1
+
 jwkId :: Jwk -> Maybe KeyId
 jwkId key = case key of
     RsaPublicJwk  _ keyId _ _ -> keyId
     RsaPrivateJwk _ keyId _ _ -> keyId
+    EcPublicJwk   _ keyId _ _ -> keyId
+    EcPrivateJwk  _ keyId _ _ -> keyId
     SymmetricJwk  _ keyId _ _ -> keyId
 
 findKeyById :: [Jwk] -> KeyId -> Maybe Jwk
@@ -159,33 +181,54 @@ instance FromJSON Jwk where
 
 instance ToJSON Jwk where
     toJSON jwk = toJSON $ case jwk of
-                   RsaPublicJwk pubKey mId mUse mAlg ->
-                      createPubData pubKey mId mUse mAlg
-                   RsaPrivateJwk privKey mId mUse mAlg ->
-                      let pubData = createPubData (RSA.private_pub privKey) mId mUse mAlg
-                      in  pubData
-                            { d  = Just . JwkBytes . i2osp $ RSA.private_d privKey
-                            , p  = i2b $ RSA.private_p    privKey
-                            , q  = i2b $ RSA.private_q    privKey
-                            , dp = i2b $ RSA.private_dP   privKey
-                            , dq = i2b $ RSA.private_dQ   privKey
-                            , qi = i2b $ RSA.private_qinv privKey
-                            }
-                   SymmetricJwk bs mId mUse mAlg ->
-                      defJwk
-                            { kty = Oct
-                            , k   = Just $ JwkBytes bs
-                            , kid = mId
-                            , use = mUse
-                            , alg = mAlg
-                            }
+        RsaPublicJwk pubKey mId mUse mAlg ->
+          createPubData pubKey mId mUse mAlg
+        RsaPrivateJwk privKey mId mUse mAlg ->
+            let pubData = createPubData (RSA.private_pub privKey) mId mUse mAlg
+            in  pubData
+                { d  = Just . JwkBytes . i2osp $ RSA.private_d privKey
+                , p  = i2b $ RSA.private_p    privKey
+                , q  = i2b $ RSA.private_q    privKey
+                , dp = i2b $ RSA.private_dP   privKey
+                , dq = i2b $ RSA.private_dQ   privKey
+                , qi = i2b $ RSA.private_qinv privKey
+                }
+        SymmetricJwk bs mId mUse mAlg -> defJwk
+            { kty = Oct
+            , k   = Just $ JwkBytes bs
+            , kid = mId
+            , use = mUse
+            , alg = mAlg
+            }
+
+        EcPublicJwk pubKey mId mUse mAlg -> defJwk
+            { kty = Ec
+            , x   = fst (ecPoint pubKey)
+            , y   = snd (ecPoint pubKey)
+            , kid = mId
+            , use = mUse
+            , alg = mAlg
+            }
+
+        EcPrivateJwk kp mId mUse mAlg -> defJwk
+            { kty = Ec
+            , x   = fst (ecPoint (ECDSA.toPublicKey kp))
+            , y   = snd (ecPoint (ECDSA.toPublicKey kp))
+            , d   = i2b (ECDSA.private_d (ECDSA.toPrivateKey kp))
+            , kid = mId
+            , use = mUse
+            , alg = mAlg
+            }
       where
         i2b 0 = Nothing
         i2b i = Just . JwkBytes . i2osp $ i
+        ecPoint pk = case ECDSA.public_q pk of
+            ECC.Point xi yi -> (i2b xi, i2b yi)
+            _             -> (Nothing, Nothing)
 
         createPubData pubKey mId mUse mAlg = defJwk
-                              { n   = Just . JwkBytes . i2osp $ RSA.public_n pubKey
-                              , e   = Just . JwkBytes . i2osp $ RSA.public_e pubKey
+                              { n   = i2b (RSA.public_n pubKey)
+                              , e   = i2b (RSA.public_e pubKey)
                               , kid = mId
                               , use = mUse
                               , alg = mAlg
@@ -256,13 +299,16 @@ createJwk kd = case kd of
         return $ RsaPrivateJwk (RSA.PrivateKey (rsaPub nb eb) (os2ip $ bytes db) (os2mip mp) (os2mip mq) (os2mip mdp) (os2mip mdq) (os2mip mqi)) i u a
     J Oct Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing (Just kb) Nothing Nothing Nothing u a i Nothing Nothing Nothing ->
         return $ SymmetricJwk (bytes kb) i u a
-    J Ec _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ->
-        Left "Elliptic curve keys are not supported yet"
-    _ -> Left "Invalid key data"
+    J Ec  Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing (Just crv') (Just xb) (Just yb) u a i Nothing Nothing Nothing ->
+        return $ EcPublicJwk (ECDSA.PublicKey (curve crv') (ecPoint xb yb)) i u a
+    J Ec  Nothing Nothing (Just db) Nothing Nothing Nothing Nothing Nothing Nothing (Just crv') (Just xb) (Just yb) u a i Nothing Nothing Nothing ->
+        return $ EcPrivateJwk (ECDSA.KeyPair (curve crv') (ecPoint xb yb) (os2ip (bytes db))) i u a
+    _ -> Left "Invalid key data. Didn't match any known JWK parameter combinations."
   where
     rsaPub  nb eb  = let m  = os2ip $ bytes nb
                          ex = os2ip $ bytes eb
                      in RSA.PublicKey (rsaSize m 1) m ex
     rsaSize m i    = if (2 ^ (i * 8)) > m then i else rsaSize m (i+1)
     os2mip         = maybe 0 (os2ip . bytes)
+    ecPoint xb yb  = ECC.Point (os2ip (bytes xb)) (os2ip (bytes yb))
 
