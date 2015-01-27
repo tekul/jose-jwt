@@ -70,7 +70,7 @@ rsaSign :: Maybe RSA.Blinder  -- ^ RSA blinder
         -> ByteString         -- ^ Message to sign
         -> Either JwtError ByteString    -- ^ The signature
 rsaSign blinder a key msg = do
-    hash <- maybe (Left $ BadAlgorithm $ T.pack $ "Not an RSA algorithm: " ++ show a) return $ lookupRSAHash a
+    hash <- lookupRSAHash a
     either (const $ Left BadCrypto) Right $ PKCS15.sign blinder hash key msg
   where
 
@@ -84,8 +84,8 @@ rsaVerify :: JwsAlg        -- ^ The signature algorithm. Used to obtain the hash
           -> ByteString    -- ^ The signature to check
           -> Bool          -- ^ Whether the signature is correct
 rsaVerify a key msg sig = case lookupRSAHash a of
-    Just hash -> PKCS15.verify hash key msg sig
-    Nothing   -> False
+    Right hash -> PKCS15.verify hash key msg sig
+    _          -> False
 
 -- | Verify the signature for a message using an EC public key.
 --
@@ -111,12 +111,12 @@ lookupECHash alg = hashFunction <$> case alg of
     ES512 -> Just hashDescrSHA512
     _     -> Nothing
 
-lookupRSAHash :: JwsAlg -> Maybe HashDescr
+lookupRSAHash :: JwsAlg -> Either JwtError HashDescr
 lookupRSAHash alg = case alg of
-    RS256 -> Just hashDescrSHA256
-    RS384 -> Just hashDescrSHA384
-    RS512 -> Just hashDescrSHA512
-    _     -> Nothing
+    RS256 -> Right hashDescrSHA256
+    RS384 -> Right hashDescrSHA384
+    RS512 -> Right hashDescrSHA512
+    _     -> Left . BadAlgorithm . T.pack $ "Not an RSA algorithm: " ++ show alg
 
 -- | Generates the symmetric key (content management key) and IV
 --
