@@ -27,9 +27,9 @@ data JwsAlg = None | HS256 | HS384 | HS512 | RS256 | RS384 | RS512 | ES256 | ES3
 -- <http://tools.ietf.org/html/draft-ietf-jose-json-web-algorithms-31#section-5 JWA Spec>.
 data JweAlg = RSA1_5 | RSA_OAEP deriving (Eq, Show, Read)
 
--- TODO: AES_192_CBC_HMAC_SHA_384 ??
 -- | Content encryption algorithms from the
 -- <http://tools.ietf.org/html/draft-ietf-jose-json-web-algorithms-31#section-5 JWA Spec>.
+-- The optional algorithms A192CBC-HS384 and A192GCM are not supported yet.
 data Enc = A128CBC_HS256 | A256CBC_HS512 | A128GCM | A256GCM deriving (Eq, Show)
 
 algs :: [(Text, Alg)]
