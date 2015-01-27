@@ -15,7 +15,8 @@
 -- Right (JwsHeader {jwsAlg = HS256, jwsTyp = Nothing, jwsCty = Nothing, jwsKid = Nothing},"public claims")
 
 module Jose.Jws
-    ( hmacEncode
+    ( jwkEncode
+    , hmacEncode
     , hmacDecode
     , rsaEncode
     , rsaDecode
@@ -36,14 +37,32 @@ import Jose.Types
 import qualified Jose.Internal.Base64 as B64
 import Jose.Internal.Crypto
 import Jose.Jwa
+import Jose.Jwk (Jwk (..))
+
+jwkEncode :: (CPRG g)
+          => g
+          -> JwsAlg
+          -> Jwk
+          -> ByteString
+          -> (Either JwtError ByteString, g)
+jwkEncode rng a key payload = case key of
+    RsaPrivateJwk kPr kid _ _ -> rsaEncodeInternal rng a kPr (sigTarget a kid payload)
+    SymmetricJwk  k   kid _ _ -> (hmacEncodeInternal a k (sigTarget a kid payload), rng)
+    _                         -> (Left $ BadAlgorithm "EC signing is not supported", rng)
+
 
 -- | Create a JWS with an HMAC for validation.
 hmacEncode :: JwsAlg       -- ^ The MAC algorithm to use
            -> ByteString   -- ^ The MAC key
            -> ByteString   -- ^ The public JWT claims (token content)
            -> Either JwtError ByteString   -- ^ The encoded JWS token
-hmacEncode a key payload = let st = sigTarget a payload
-                           in  (\mac -> B.concat [st, ".", B64.encode mac]) <$> hmacSign a key st
+hmacEncode a key payload = hmacEncodeInternal a key (sigTarget a Nothing payload)
+
+hmacEncodeInternal :: JwsAlg
+                   -> ByteString
+                   -> ByteString
+                   -> Either JwtError ByteString
+hmacEncodeInternal a key st = (\mac -> B.concat [st, ".", B64.encode mac]) <$> hmacSign a key st
 
 -- | Decodes and validates an HMAC signed JWS.
 hmacDecode :: ByteString          -- ^ The HMAC key
@@ -58,16 +77,21 @@ rsaEncode :: CPRG g
           -> PrivateKey                       -- ^ The key to sign with
           -> ByteString                       -- ^ The public JWT claims (token content)
           -> (Either JwtError ByteString, g)  -- ^ The encoded JWS token
-rsaEncode rng a pk payload = (sign blinder, rng')
+rsaEncode rng a pk payload = rsaEncodeInternal rng a pk (sigTarget a Nothing payload)
+
+rsaEncodeInternal :: CPRG g
+                  => g
+                  -> JwsAlg
+                  -> PrivateKey
+                  -> ByteString
+                  -> (Either JwtError ByteString, g)
+rsaEncodeInternal rng a pk st = (sign blinder, rng')
   where
     (blinder, rng') = generateBlinder rng (public_n $ private_pub pk)
-
-    st = sigTarget a payload
 
     sign b = case rsaSign (Just b) a pk st of
         Right sig -> Right $ B.concat [st, ".", B64.encode sig]
         err       -> err
-
 
 -- | Decode and validate an RSA signed JWS.
 rsaDecode :: PublicKey            -- ^ The key to check the signature with
@@ -82,8 +106,8 @@ ecDecode :: ECDSA.PublicKey       -- ^ The key to check the signature with
          -> Either JwtError Jws   -- ^ The decoded token if successful
 ecDecode key = decode (`ecVerify` key)
 
-sigTarget :: JwsAlg -> ByteString -> ByteString
-sigTarget a payload = B.intercalate "." $ map B64.encode [encodeHeader $ defJwsHdr {jwsAlg = a}, payload]
+sigTarget :: JwsAlg -> Maybe KeyId -> ByteString -> ByteString
+sigTarget a kid payload = B.intercalate "." $ map B64.encode [encodeHeader $ defJwsHdr {jwsAlg = a, jwsKid = kid}, payload]
 
 type JwsVerifier = JwsAlg -> ByteString -> ByteString -> Bool
 

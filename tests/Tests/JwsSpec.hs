@@ -16,7 +16,7 @@ import qualified Crypto.PubKey.RSA.PKCS15 as RSAPKCS15
 import Crypto.PubKey.HashDescr
 import Crypto.Random (CPRG(..))
 
-import Jose.Jwt
+import Jose.Jwt hiding (encode)
 import Jose.Jwa
 import qualified Jose.Internal.Base64 as B64
 import qualified Jose.Jws as Jws

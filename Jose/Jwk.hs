@@ -7,12 +7,14 @@ module Jose.Jwk
     , KeyId
     , Jwk (..)
     , JwkSet (..)
+    , validateForJws
     , findMatchingJwsKeys
     , findMatchingJweKeys
     )
 where
 
 import           Control.Applicative (pure)
+import           Control.Monad (when)
 import qualified Crypto.PubKey.RSA as RSA
 import qualified Crypto.PubKey.ECC.ECDSA as ECDSA
 import qualified Crypto.Types.PubKey.ECC as ECC
@@ -26,7 +28,7 @@ import           GHC.Generics (Generic)
 
 import qualified Jose.Internal.Base64 as B64
 import           Jose.Jwa
-import           Jose.Types (JwsHeader(..), JweHeader(..))
+import           Jose.Types (JwtError(..), KeyId, JwsHeader(..), JweHeader(..))
 
 data KeyType = Rsa
              | Ec
@@ -42,8 +44,6 @@ data KeyUse  = Sig
              | Enc
                deriving (Eq,Show)
 
-type KeyId   = Text
-
 data Jwk = RsaPublicJwk  RSA.PublicKey (Maybe KeyId) (Maybe KeyUse) (Maybe Alg)
          | RsaPrivateJwk RSA.PrivateKey (Maybe KeyId) (Maybe KeyUse) (Maybe Alg)
          | EcPublicJwk   ECDSA.PublicKey (Maybe KeyId) (Maybe KeyUse) (Maybe Alg)
@@ -55,8 +55,10 @@ data JwkSet = JwkSet
     { keys :: [Jwk]
     } deriving (Show, Eq, Generic)
 
-canDecodeJws :: JwsAlg -> Jwk -> Bool
-canDecodeJws al jwk = case al of
+validateForJws :: JwsAlg -> Jwk -> Either JwtError ()
+validateForJws a jwk = do
+    when (jwkUse jwk == Just Enc) $ Left (KeyError "JWK is for encryption only")
+    either (Left . KeyError) (const $ Right ()) $ case a of
         HS256 -> mustBeSymmetric
         HS384 -> mustBeSymmetric
         HS512 -> mustBeSymmetric
@@ -66,23 +68,26 @@ canDecodeJws al jwk = case al of
         ES256 -> mustBeEc
         ES384 -> mustBeEc
         ES512 -> mustBeEc
-        -- Not yet supported (EC)
-        _     -> False
+        None  -> Left "JWS with alg 'None' does not require a key"
  where
     mustBeRsa       = case jwk of
-        RsaPrivateJwk {} -> True
-        RsaPublicJwk  {} -> True
-        _                -> False
+        RsaPrivateJwk {} -> Right ()
+        RsaPublicJwk  {} -> Right ()
+        _                -> Left "JWK must be an RSA key"
     mustBeSymmetric = case jwk of
-        SymmetricJwk {}  -> True
-        _                -> False
+        SymmetricJwk {}  -> Right ()
+        _                -> Left "JWK must be symmetric"
     mustBeEc        = case jwk of
-        EcPrivateJwk {}  -> True
-        EcPublicJwk  {}  -> True
-        _                -> False
+        EcPrivateJwk {}  -> Right ()
+        EcPublicJwk  {}  -> Right ()
+        _                -> Left "JWK must be an EC key"
+
+canDecodeJws :: JwsAlg -> Jwk -> Bool
+canDecodeJws al jwk = either (const False) (const True) $ validateForJws al jwk
 
 canDecodeJwe :: JweAlg -> Jwk -> Bool
-canDecodeJwe _ jwk = case jwk of    -- JWE
+canDecodeJwe _ jwk = jwkUse jwk /= Just Sig &&
+    case jwk of
         RsaPrivateJwk {} -> True
         _                -> False
 
@@ -99,6 +104,15 @@ jwkId key = case key of
     EcPublicJwk   _ keyId _ _ -> keyId
     EcPrivateJwk  _ keyId _ _ -> keyId
     SymmetricJwk  _ keyId _ _ -> keyId
+
+
+jwkUse :: Jwk -> Maybe KeyUse
+jwkUse key = case key of
+    RsaPublicJwk  _ _ u _ -> u
+    RsaPrivateJwk _ _ u _ -> u
+    EcPublicJwk   _ _ u _ -> u
+    EcPrivateJwk  _ _ u _ -> u
+    SymmetricJwk  _ _ u _ -> u
 
 findKeyById :: [Jwk] -> KeyId -> Maybe Jwk
 findKeyById [] _       = Nothing

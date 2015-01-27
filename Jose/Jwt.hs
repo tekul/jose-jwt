@@ -3,6 +3,7 @@
 
 module Jose.Jwt
     ( module Jose.Types
+    , encode
     , decode
     , decodeClaims
     )
@@ -22,9 +23,29 @@ import qualified Data.ByteString.Char8 as BC
 import qualified Jose.Internal.Base64 as B64
 import Jose.Types
 import Jose.Jwk
+import Jose.Jwa
 
 import qualified Jose.Jws as Jws
 import qualified Jose.Jwe as Jwe
+
+
+-- | Use the supplied JWK to create a JWT.
+--
+encode :: (CPRG g)
+       => g
+       -> Jwk
+       -> Alg
+       -> Maybe Enc
+       -> ByteString
+       -> (Either JwtError ByteString, g)
+encode rng jwk alg enc msg = flip runState rng $ runEitherT $ case alg of
+    Signed a    -> do
+        unless (isNothing enc) $ left (BadAlgorithm "Enc cannot be set for a JWS")
+        hoistEither (validateForJws a jwk)
+        hoistEither =<< state (\g -> Jws.jwkEncode g a jwk msg)
+    Encrypted a -> case enc of
+        Nothing   -> left (BadAlgorithm "Enc must be supplied for a JWE")
+        Just e    -> hoistEither =<< state (\g -> Jwe.jwkEncode g a e jwk msg)
 
 
 -- | Uses the supplied keys to decode a JWT.

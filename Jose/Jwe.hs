@@ -14,10 +14,16 @@
 -- >>> fst $ rsaDecode g'' kPr jwt
 -- Right (JweHeader {jweAlg = RSA_OAEP, jweEnc = A128GCM, jweTyp = Nothing, jweCty = Nothing, jweZip = Nothing, jweKid = Nothing},"secret claims")
 
-module Jose.Jwe where
+module Jose.Jwe
+    ( jwkEncode
+    , rsaEncode
+    , rsaDecode
+    )
+where
 
+import Control.Arrow (first)
 import Crypto.Cipher.Types (AuthTag(..))
-import Crypto.PubKey.RSA (PrivateKey(..), PublicKey(..), generateBlinder)
+import Crypto.PubKey.RSA (PrivateKey(..), PublicKey(..), generateBlinder, private_pub)
 import Crypto.Random.API (CPRG)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
@@ -26,6 +32,21 @@ import Jose.Types
 import qualified Jose.Internal.Base64 as B64
 import Jose.Internal.Crypto
 import Jose.Jwa
+import Jose.Jwk
+
+jwkEncode :: CPRG g
+          => g
+          -> JweAlg
+          -> Enc
+          -> Jwk
+          -> ByteString
+          -> (Either JwtError ByteString, g)
+jwkEncode rng a e jwk claims = case jwk of
+    RsaPublicJwk kPub kid _ _ -> first Right $ rsaEncodeInternal rng (hdr kid) kPub claims
+    RsaPrivateJwk kPr kid _ _ -> first Right $ rsaEncodeInternal rng (hdr kid) (private_pub kPr) claims
+    _                         -> (Left $ KeyError "Only RSA JWKs can be used for encoding", rng)
+  where
+    hdr kid = defJweHdr {jweAlg = a, jweEnc = e, jweKid = kid}
 
 -- | Creates a JWE.
 rsaEncode :: CPRG g
@@ -35,14 +56,25 @@ rsaEncode :: CPRG g
           -> PublicKey       -- ^ RSA key to encrypt with
           -> ByteString      -- ^ The JWT claims (content)
           -> (ByteString, g) -- ^ The encoded JWE and new generator
-rsaEncode rng a e pubKey claims = (jwe, rng'')
+rsaEncode rng a e = rsaEncodeInternal rng (defJweHdr {jweAlg = a, jweEnc = e})
+
+rsaEncodeInternal :: CPRG g
+                  => g
+                  -> JweHeader
+                  -> PublicKey
+                  -> ByteString
+                  -> (ByteString, g)
+rsaEncodeInternal rng h pubKey claims = (jwe, rng'')
   where
-    hdr = encodeHeader defJweHdr {jweAlg = a, jweEnc = e}
+    a   = jweAlg h
+    e   = jweEnc h
+    hdr = encodeHeader h
     (cmk, iv, rng') = generateCmkAndIV rng e
     (jweKey, rng'') = rsaEncrypt rng' a pubKey cmk
     aad = B64.encode hdr
     (ct, AuthTag sig) = encryptPayload e cmk iv aad claims
     jwe = B.intercalate "." $ map B64.encode [hdr, jweKey, iv, ct, sig]
+
 
 -- | Decrypts a JWE.
 rsaDecode :: CPRG g

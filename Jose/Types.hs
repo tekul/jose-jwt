@@ -11,6 +11,7 @@ module Jose.Types
     , JweHeader (..)
     , JwtError (..)
     , IntDate (..)
+    , KeyId
     , parseHeader
     , encodeHeader
     , defJwsHdr
@@ -47,13 +48,15 @@ data JwtHeader = JweH JweHeader
                | JwsH JwsHeader
                  deriving (Show)
 
+type KeyId   = Text
+
 
 -- | Header content for a JWS.
 data JwsHeader = JwsHeader {
     jwsAlg :: JwsAlg
   , jwsTyp :: Maybe Text
   , jwsCty :: Maybe Text
-  , jwsKid :: Maybe Text
+  , jwsKid :: Maybe KeyId
   } deriving (Eq, Show, Generic)
 
 -- | Header content for a JWE.
@@ -63,7 +66,7 @@ data JweHeader = JweHeader {
   , jweTyp :: Maybe Text
   , jweCty :: Maybe Text
   , jweZip :: Maybe Text
-  , jweKid :: Maybe Text
+  , jweKid :: Maybe KeyId
   } deriving (Eq, Show, Generic)
 
 newtype IntDate = IntDate POSIXTime deriving (Show, Eq, Ord)
