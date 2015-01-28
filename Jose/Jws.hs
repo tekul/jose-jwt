@@ -39,17 +39,19 @@ import Jose.Internal.Crypto
 import Jose.Jwa
 import Jose.Jwk (Jwk (..))
 
+-- | Create a JWS signed with a JWK.
+-- The key and algorithm must be consistent or an error
+-- will be returned.
 jwkEncode :: (CPRG g)
           => g
-          -> JwsAlg
-          -> Jwk
-          -> ByteString
-          -> (Either JwtError ByteString, g)
+          -> JwsAlg                          -- ^ The algorithm to use
+          -> Jwk                             -- ^ The key to sign with
+          -> ByteString                      -- ^ The public JWT claims
+          -> (Either JwtError ByteString, g) -- ^ The encoded token, if successful
 jwkEncode rng a key payload = case key of
     RsaPrivateJwk kPr kid _ _ -> rsaEncodeInternal rng a kPr (sigTarget a kid payload)
     SymmetricJwk  k   kid _ _ -> (hmacEncodeInternal a k (sigTarget a kid payload), rng)
     _                         -> (Left $ BadAlgorithm "EC signing is not supported", rng)
-
 
 -- | Create a JWS with an HMAC for validation.
 hmacEncode :: JwsAlg       -- ^ The MAC algorithm to use

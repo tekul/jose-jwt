@@ -34,13 +34,16 @@ import Jose.Internal.Crypto
 import Jose.Jwa
 import Jose.Jwk
 
+-- | Create a JWE using a JWK.
+-- The key and algorithms must be consistent or an error
+-- will be returned.
 jwkEncode :: CPRG g
-          => g
-          -> JweAlg
-          -> Enc
-          -> Jwk
-          -> ByteString
-          -> (Either JwtError ByteString, g)
+          => g                               -- ^ Random number generator
+          -> JweAlg                          -- ^ Algorithm to use for key encryption
+          -> Enc                             -- ^ Content encryption algorithm
+          -> Jwk                             -- ^ The key to use to encrypt the content key
+          -> ByteString                      -- ^ The token content (claims)
+          -> (Either JwtError ByteString, g) -- ^ The encoded JWE if successful
 jwkEncode rng a e jwk claims = case jwk of
     RsaPublicJwk kPub kid _ _ -> first Right $ rsaEncodeInternal rng (hdr kid) kPub claims
     RsaPrivateJwk kPr kid _ _ -> first Right $ rsaEncodeInternal rng (hdr kid) (private_pub kPr) claims
