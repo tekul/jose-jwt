@@ -1,5 +1,5 @@
 Name:               jose-jwt
-Version:            0.2
+Version:            0.3
 Synopsis:           JSON Object Signing and Encryption Library
 Homepage:           http://github.com/tekul/jose-jwt
 Bug-Reports:        http://github.com/tekul/jose-jwt/issues
@@ -23,6 +23,9 @@ License-File:       LICENSE
 Build-Type:         Simple
 Cabal-Version:      >= 1.16
 Category:           JSON, Cryptography
+
+Extra-Source-Files:
+    CHANGELOG.md
 
 Source-Repository head
   Type:             git
