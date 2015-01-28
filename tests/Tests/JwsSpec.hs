@@ -16,7 +16,7 @@ import qualified Crypto.PubKey.RSA.PKCS15 as RSAPKCS15
 import Crypto.PubKey.HashDescr
 import Crypto.Random (CPRG(..))
 
-import Jose.Jwt hiding (encode)
+import Jose.Jwt
 import Jose.Jwa
 import qualified Jose.Internal.Base64 as B64
 import qualified Jose.Jws as Jws
@@ -42,7 +42,7 @@ spec =
           Jws.hmacDecode hmacKey a11 @?= a11decoded
 
         it "encodes the payload to the expected JWT" $
-          encode a11mac a11Header a11Payload @?= a11
+          signWithHeader a11mac a11Header a11Payload @?= a11
 
         it "decodes the payload using the JWK" $ do
           let Just k11 = decodeStrict' a11jwk
@@ -58,9 +58,13 @@ spec =
         it "decodes the JWT to the expected header and payload" $
           Jws.rsaDecode rsaPublicKey a21 @?= Right (defJwsHdr {jwsAlg = RS256}, a21Payload)
 
+        it "decodes the JWT to the expected header and payload with the JWK" $ do
+          let Just k21 = decodeStrict' a21jwk
+          fst (decode RNG [k21] a21) @?= (Right $ Jws (defJwsHdr {jwsAlg = RS256}, a21Payload))
+
         it "encodes the payload to the expected JWT" $ do
           let sign = either (error "Sign failed") id . RSAPKCS15.sign Nothing hashDescrSHA256 rsaPrivateKey
-          encode sign a21Header a21Payload @?= a21
+          signWithHeader sign a21Header a21Payload @?= a21
 
         it "encodes/decodes using RS256" $
           rsaRoundTrip RS256 a21Payload
@@ -77,7 +81,7 @@ spec =
           let Just k31 = decodeStrict' a31jwk
           fst (decode RNG [k31] a31) @?= fmap Jws a31decoded
 
-encode sign hdr payload = B.intercalate "." [hdrPayload, B64.encode $ sign hdrPayload]
+signWithHeader sign hdr payload = B.intercalate "." [hdrPayload, B64.encode $ sign hdrPayload]
   where
     hdrPayload = B.intercalate "." $ map B64.encode [hdr, payload]
 
@@ -96,7 +100,7 @@ a11jwk = "{\"kty\":\"oct\", \"k\":\"AyM1SysPpbyDfgZld3umj1qzKObwVMkoqQ-EstJQLr_T
 a21Header = "{\"alg\":\"RS256\"}" :: B.ByteString
 a21Payload = a11Payload
 a21 = "eyJhbGciOiJSUzI1NiJ9.eyJpc3MiOiJqb2UiLA0KICJleHAiOjEzMDA4MTkzODAsDQogImh0dHA6Ly9leGFtcGxlLmNvbS9pc19yb290Ijp0cnVlfQ.cC4hiUPoj9Eetdgtv3hF80EGrhuB__dzERat0XF9g2VtQgr9PJbu3XOiZj5RZmh7AAuHIm4Bh-0Qc_lF5YKt_O8W2Fp5jujGbds9uJdbF9CUAr7t1dnZcAcQjbKBYNX4BAynRFdiuB--f_nZLgrnbyTyWzO75vRK5h6xBArLIARNPvkSjtQBMHlb1L07Qe7K0GarZRmB_eSN9383LcOLn6_dO--xi12jzDwusC-eOkHWEsqtFZESc6BfI7noOPqvhJ1phCnvWh6IeYI2w9QOYEUipUTI8np6LbgGY9Fs98rqVt5AXLIhWkWywlVmtVrBp0igcN_IoypGlUPQGe77Rw"
-
+a21jwk = "{\"kty\":\"RSA\", \"n\":\"ofgWCuLjybRlzo0tZWJjNiuSfb4p4fAkd_wWJcyQoTbji9k0l8W26mPddxHmfHQp-Vaw-4qPCJrcS2mJPMEzP1Pt0Bm4d4QlL-yRT-SFd2lZS-pCgNMsD1W_YpRPEwOWvG6b32690r2jZ47soMZo9wGzjb_7OMg0LOL-bSf63kpaSHSXndS5z5rexMdbBYUsLA9e-KXBdQOS-UTo7WTBEMa2R2CapHg665xsmtdVMTBQY4uDZlxvb3qCo5ZwKh9kG4LT6_I5IhlJH7aGhyxXFvUK-DWNmoudF8NAco9_h9iaGNj8q2ethFkMLs91kzk2PAcDTW9gb54h4FRWyuXpoQ\", \"e\":\"AQAB\", \"d\":\"Eq5xpGnNCivDflJsRQBXHx1hdR1k6Ulwe2JZD50LpXyWPEAeP88vLNO97IjlA7_GQ5sLKMgvfTeXZx9SE-7YwVol2NXOoAJe46sui395IW_GO-pWJ1O0BkTGoVEn2bKVRUCgu-GjBVaYLU6f3l9kJfFNS3E0QbVdxzubSu3Mkqzjkn439X0M_V51gfpRLI9JYanrC4D4qAdGcopV_0ZHHzQlBjudU2QvXt4ehNYTCBr6XCLQUShb1juUO1ZdiYoFaFQT5Tw8bGUl_x_jTj3ccPDVZFD9pIuhLhBOneufuBiB4cS98l2SR_RQyGWSeWjnczT0QU91p1DhOVRuOopznQ\"}"
 
 a31Header = "{\"alg\":\"ES256\"}" :: B.ByteString
 a31Payload = a11Payload
