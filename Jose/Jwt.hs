@@ -46,23 +46,28 @@ import qualified Jose.Jws as Jws
 import qualified Jose.Jwe as Jwe
 
 
--- | Use the supplied JWK to create a JWT.
+-- | Use the supplied JWKs to create a JWT.
+-- The list of keys will be searched to locate one which is
+-- consistent with the chosen algorithm.
 --
 encode :: (CPRG g)
        => g                               -- ^ Random number generator.
-       -> Jwk                             -- ^ The key. Must be consistent with the chosen algorithm
+       -> [Jwk]                           -- ^ The key or keys. At least one must be consistent with the chosen algorithm
        -> Alg                             -- ^ The JWS or JWE algorithm
        -> Maybe Enc                       -- ^ The payload encryption algorithm (if applicable)
        -> ByteString                      -- ^ The payload (claims)
-       -> (Either JwtError ByteString, g) -- ^ The encode JWT, if successful
-encode rng jwk alg enc msg = flip runState rng $ runEitherT $ case alg of
+       -> (Either JwtError ByteString, g) -- ^ The encoded JWT, if successful
+encode rng jwks alg enc msg = flip runState rng $ runEitherT $ case alg of
     Signed a    -> do
         unless (isNothing enc) $ left (BadAlgorithm "Enc cannot be set for a JWS")
-        hoistEither (validateForJws a jwk)
-        hoistEither =<< state (\g -> Jws.jwkEncode g a jwk msg)
-    Encrypted a -> case enc of
-        Nothing   -> left (BadAlgorithm "Enc must be supplied for a JWE")
-        Just e    -> hoistEither =<< state (\g -> Jwe.jwkEncode g a e jwk msg)
+        case findMatchingJwsKeys jwks (defJwsHdr { jwsAlg = a }) of
+            []     -> left (KeyError "No matching key found for JWS algorithm")
+            (k:_) -> hoistEither =<< state (\g -> Jws.jwkEncode g a k msg)
+    Encrypted a -> do
+        e <- hoistEither $ note (BadAlgorithm "Enc must be supplied for a JWE") enc
+        case findMatchingJweKeys jwks (defJweHdr { jweAlg = a, jweEnc = e }) of
+            []     -> left (KeyError "No matching key found for JWE algorithm")
+            (k:_) -> hoistEither =<< state (\g -> Jwe.jwkEncode g a e k msg)
 
 
 -- | Uses the supplied keys to decode a JWT.
@@ -98,9 +103,7 @@ decode rng keySet jwt = flip runState rng $ runEitherT $ do
     decodeWithJwe :: CPRG g => Jwk -> EitherT JwtError (State g) (Maybe Jwt)
     decodeWithJwe k = case k of
         RsaPrivateJwk kPr _ _ _ -> do
-            g <- lift get
-            let (e, g') = Jwe.rsaDecode g kPr jwt
-            lift $ put g'
+            e <- state (\g -> Jwe.rsaDecode g kPr jwt)
             either (const $ return Nothing) (return . Just . Jwe) e
         _                       -> left $ KeyError "Not a JWE key (shouldn't happen)"
 

@@ -1,5 +1,5 @@
 Name:               jose-jwt
-Version:            0.3
+Version:            0.3.1
 Synopsis:           JSON Object Signing and Encryption Library
 Homepage:           http://github.com/tekul/jose-jwt
 Bug-Reports:        http://github.com/tekul/jose-jwt/issues
@@ -7,7 +7,7 @@ Description:
     .
     Intended to provide support for the JOSE suite of IETF (draft)
     standards and the closely related JWT (JSON web token) spec
-    (<http://tools.ietf.org/html/draft-ietf-oauth-json-web-token-25/>).
+    (<http://tools.ietf.org/html/draft-ietf-oauth-json-web-token-32/>).
     .
     Both signed and encrypted JWTs are supported, as well as simple
     JWK format keys.
