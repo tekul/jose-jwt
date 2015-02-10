@@ -10,7 +10,7 @@
 -- >>> g <- makeSystem
 -- >>> import Crypto.PubKey.RSA
 -- >>> let ((kPub, kPr), g') = generate g 512 65537
--- >>> let (jwt, g'') = rsaEncode g' RSA_OAEP A128GCM kPub "secret claims"
+-- >>> let (Jwt jwt, g'') = rsaEncode g' RSA_OAEP A128GCM kPub "secret claims"
 -- >>> fst $ rsaDecode g'' kPr jwt
 -- Right (JweHeader {jweAlg = RSA_OAEP, jweEnc = A128GCM, jweTyp = Nothing, jweCty = Nothing, jweZip = Nothing, jweKid = Nothing},"secret claims")
 
@@ -42,14 +42,17 @@ jwkEncode :: CPRG g
           -> JweAlg                          -- ^ Algorithm to use for key encryption
           -> Enc                             -- ^ Content encryption algorithm
           -> Jwk                             -- ^ The key to use to encrypt the content key
-          -> ByteString                      -- ^ The token content (claims)
-          -> (Either JwtError ByteString, g) -- ^ The encoded JWE if successful
-jwkEncode rng a e jwk claims = case jwk of
-    RsaPublicJwk kPub kid _ _ -> first Right $ rsaEncodeInternal rng (hdr kid) kPub claims
-    RsaPrivateJwk kPr kid _ _ -> first Right $ rsaEncodeInternal rng (hdr kid) (private_pub kPr) claims
+          -> Payload                         -- ^ The token content (claims or nested JWT)
+          -> (Either JwtError Jwt, g)        -- ^ The encoded JWE if successful
+jwkEncode rng a e jwk payload = case jwk of
+    RsaPublicJwk kPub kid _ _ -> first Right $ rsaEncodeInternal rng (hdr kid) kPub bytes
+    RsaPrivateJwk kPr kid _ _ -> first Right $ rsaEncodeInternal rng (hdr kid) (private_pub kPr) bytes
     _                         -> (Left $ KeyError "Only RSA JWKs can be used for encoding", rng)
   where
-    hdr kid = defJweHdr {jweAlg = a, jweEnc = e, jweKid = kid}
+    hdr kid = defJweHdr {jweAlg = a, jweEnc = e, jweKid = kid, jweCty = contentType}
+    (contentType, bytes) = case payload of
+        Claims c       -> (Nothing, c)
+        Nested (Jwt b) -> (Just "JWT", b)
 
 -- | Creates a JWE.
 rsaEncode :: CPRG g
@@ -58,7 +61,7 @@ rsaEncode :: CPRG g
           -> Enc             -- ^ Content encryption algorithm
           -> PublicKey       -- ^ RSA key to encrypt with
           -> ByteString      -- ^ The JWT claims (content)
-          -> (ByteString, g) -- ^ The encoded JWE and new generator
+          -> (Jwt, g) -- ^ The encoded JWE and new generator
 rsaEncode rng a e = rsaEncodeInternal rng (defJweHdr {jweAlg = a, jweEnc = e})
 
 rsaEncodeInternal :: CPRG g
@@ -66,8 +69,8 @@ rsaEncodeInternal :: CPRG g
                   -> JweHeader
                   -> PublicKey
                   -> ByteString
-                  -> (ByteString, g)
-rsaEncodeInternal rng h pubKey claims = (jwe, rng'')
+                  -> (Jwt, g)
+rsaEncodeInternal rng h pubKey claims = (Jwt jwe, rng'')
   where
     a   = jweAlg h
     e   = jweEnc h

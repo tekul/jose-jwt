@@ -13,7 +13,7 @@
 -- >>> g <- makeSystem
 -- >>> let jsonJwk = "{\"kty\":\"RSA\", \"kid\":\"mykey\", \"n\":\"ofgWCuLjybRlzo0tZWJjNiuSfb4p4fAkd_wWJcyQoTbji9k0l8W26mPddxHmfHQp-Vaw-4qPCJrcS2mJPMEzP1Pt0Bm4d4QlL-yRT-SFd2lZS-pCgNMsD1W_YpRPEwOWvG6b32690r2jZ47soMZo9wGzjb_7OMg0LOL-bSf63kpaSHSXndS5z5rexMdbBYUsLA9e-KXBdQOS-UTo7WTBEMa2R2CapHg665xsmtdVMTBQY4uDZlxvb3qCo5ZwKh9kG4LT6_I5IhlJH7aGhyxXFvUK-DWNmoudF8NAco9_h9iaGNj8q2ethFkMLs91kzk2PAcDTW9gb54h4FRWyuXpoQ\", \"e\":\"AQAB\", \"d\":\"Eq5xpGnNCivDflJsRQBXHx1hdR1k6Ulwe2JZD50LpXyWPEAeP88vLNO97IjlA7_GQ5sLKMgvfTeXZx9SE-7YwVol2NXOoAJe46sui395IW_GO-pWJ1O0BkTGoVEn2bKVRUCgu-GjBVaYLU6f3l9kJfFNS3E0QbVdxzubSu3Mkqzjkn439X0M_V51gfpRLI9JYanrC4D4qAdGcopV_0ZHHzQlBjudU2QvXt4ehNYTCBr6XCLQUShb1juUO1ZdiYoFaFQT5Tw8bGUl_x_jTj3ccPDVZFD9pIuhLhBOneufuBiB4cS98l2SR_RQyGWSeWjnczT0QU91p1DhOVRuOopznQ\"}"
 -- >>> let Just jwk = decodeStrict jsonJwk :: Maybe Jwk
--- >>> let (Right jwtEncoded, g')  = encode g jwk (Signed RS256) Nothing "public claims"
+-- >>> let (Right (Jwt jwtEncoded), g')  = encode g [jwk] (Signed RS256) Nothing (Claims "public claims")
 -- >>> let (Right jwtDecoded, g'') = Jose.Jwt.decode g' [jwk] jwtEncoded
 -- >>> jwtDecoded
 -- Jws (JwsHeader {jwsAlg = RS256, jwsTyp = Nothing, jwsCty = Nothing, jwsKid = Just "mykey"},"public claims")
@@ -51,23 +51,24 @@ import qualified Jose.Jwe as Jwe
 -- consistent with the chosen algorithm.
 --
 encode :: (CPRG g)
-       => g                               -- ^ Random number generator.
-       -> [Jwk]                           -- ^ The key or keys. At least one must be consistent with the chosen algorithm
-       -> Alg                             -- ^ The JWS or JWE algorithm
-       -> Maybe Enc                       -- ^ The payload encryption algorithm (if applicable)
-       -> ByteString                      -- ^ The payload (claims)
-       -> (Either JwtError ByteString, g) -- ^ The encoded JWT, if successful
+       => g                          -- ^ Random number generator.
+       -> [Jwk]                      -- ^ The key or keys. At least one must be consistent with the chosen algorithm
+       -> Alg                        -- ^ The JWS or JWE algorithm
+       -> Maybe Enc                  -- ^ The payload encryption algorithm (if applicable)
+       -> Payload                    -- ^ The payload (claims)
+       -> (Either JwtError Jwt, g)   -- ^ The encoded JWT, if successful
 encode rng jwks alg enc msg = flip runState rng $ runEitherT $ case alg of
     Signed a    -> do
         unless (isNothing enc) $ left (BadAlgorithm "Enc cannot be set for a JWS")
         case findMatchingJwsKeys jwks (defJwsHdr { jwsAlg = a }) of
-            []     -> left (KeyError "No matching key found for JWS algorithm")
+            []    -> left (KeyError "No matching key found for JWS algorithm")
             (k:_) -> hoistEither =<< state (\g -> Jws.jwkEncode g a k msg)
     Encrypted a -> do
         e <- hoistEither $ note (BadAlgorithm "Enc must be supplied for a JWE") enc
         case findMatchingJweKeys jwks (defJweHdr { jweAlg = a, jweEnc = e }) of
-            []     -> left (KeyError "No matching key found for JWE algorithm")
+            []    -> left (KeyError "No matching key found for JWE algorithm")
             (k:_) -> hoistEither =<< state (\g -> Jwe.jwkEncode g a e k msg)
+
 
 
 -- | Uses the supplied keys to decode a JWT.
@@ -75,10 +76,10 @@ encode rng jwks alg enc msg = flip runState rng $ runEitherT $ case alg of
 -- or by suitable key type.
 -- The JWK @use@ and @alg@ options are currently ignored.
 decode :: CPRG g
-       => g                        -- ^ Random number generator. Only used for RSA blinding
-       -> [Jwk]                    -- ^ The keys to use for decoding
-       -> ByteString               -- ^ The encoded JWT
-       -> (Either JwtError Jwt, g) -- ^ The decoded JWT, if successful
+       => g                               -- ^ Random number generator. Only used for RSA blinding
+       -> [Jwk]                           -- ^ The keys to use for decoding
+       -> ByteString                      -- ^ The encoded JWT
+       -> (Either JwtError JwtContent, g) -- ^ The decoded JWT payload, if successful
 decode rng keySet jwt = flip runState rng $ runEitherT $ do
     let components = BC.split '.' jwt
     when (length components < 3) $ left $ BadDots 2
@@ -92,7 +93,7 @@ decode rng keySet jwt = flip runState rng $ runEitherT $ do
     decodings <- mapM decodeWith ks
     maybe (left $ KeyError "None of the keys was able to decode the JWT") (return . fromJust) $ find isJust decodings
   where
-    decodeWithJws :: CPRG g => Jwk -> EitherT JwtError (State g) (Maybe Jwt)
+    decodeWithJws :: CPRG g => Jwk -> EitherT JwtError (State g) (Maybe JwtContent)
     decodeWithJws k = either (const $ return Nothing) (return . Just . Jws) $ case k of
         RsaPublicJwk  kPub _ _ _ -> Jws.rsaDecode kPub jwt
         RsaPrivateJwk kPr  _ _ _ -> Jws.rsaDecode (private_pub kPr) jwt
@@ -100,7 +101,7 @@ decode rng keySet jwt = flip runState rng $ runEitherT $ do
         EcPrivateJwk  kPr  _ _ _ -> Jws.ecDecode (ECDSA.toPublicKey kPr) jwt
         SymmetricJwk  kb   _ _ _ -> Jws.hmacDecode kb jwt
 
-    decodeWithJwe :: CPRG g => Jwk -> EitherT JwtError (State g) (Maybe Jwt)
+    decodeWithJwe :: CPRG g => Jwk -> EitherT JwtError (State g) (Maybe JwtContent)
     decodeWithJwe k = case k of
         RsaPrivateJwk kPr _ _ _ -> do
             e <- state (\g -> Jwe.rsaDecode g kPr jwt)

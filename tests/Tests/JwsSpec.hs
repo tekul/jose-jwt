@@ -85,10 +85,10 @@ signWithHeader sign hdr payload = B.intercalate "." [hdrPayload, B64.encode $ si
   where
     hdrPayload = B.intercalate "." $ map B64.encode [hdr, payload]
 
-hmacRoundTrip a msg = let Right encoded = Jws.hmacEncode a "asecretkey" msg
+hmacRoundTrip a msg = let Right (Jwt encoded) = Jws.hmacEncode a "asecretkey" msg
                      in  Jws.hmacDecode "asecretkey" encoded @?= Right (defJwsHdr {jwsAlg = a}, msg)
 
-rsaRoundTrip a msg = let Right encoded = fst $ Jws.rsaEncode RNG a rsaPrivateKey msg
+rsaRoundTrip a msg = let Right (Jwt encoded) = fst $ Jws.rsaEncode RNG a rsaPrivateKey msg
                      in  Jws.rsaDecode rsaPublicKey encoded @?= Right (defJwsHdr {jwsAlg = a}, msg)
 
 a11Header = "{\"typ\":\"JWT\",\r\n \"alg\":\"HS256\"}" :: B.ByteString

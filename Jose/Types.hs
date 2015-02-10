@@ -9,8 +9,10 @@ module Jose.Types
     , JwtHeader (..)
     , JwsHeader (..)
     , JweHeader (..)
+    , JwtContent (..)
     , JwtError (..)
     , IntDate (..)
+    , Payload (..)
     , KeyId
     , parseHeader
     , encodeHeader
@@ -35,6 +37,14 @@ import GHC.Generics
 
 import Jose.Jwa (JweAlg(..), JwsAlg (..), Enc(..))
 
+-- | An encoded JWT.
+newtype Jwt = Jwt { unJwt :: ByteString } deriving (Show, Eq)
+
+-- | The payload to be encoded in a JWT.
+data Payload = Nested Jwt
+             | Claims ByteString
+             deriving (Show, Eq)
+
 -- | The header and claims of a decoded JWS.
 type Jws = (JwsHeader, ByteString)
 
@@ -42,7 +52,7 @@ type Jws = (JwsHeader, ByteString)
 type Jwe = (JweHeader, ByteString)
 
 -- | A decoded JWT which can be either a JWE or a JWS.
-data Jwt = Jws !Jws | Jwe !Jwe deriving (Show, Eq)
+data JwtContent = Jws !Jws | Jwe !Jwe deriving (Show, Eq)
 
 data JwtHeader = JweH JweHeader
                | JwsH JwsHeader

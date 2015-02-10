@@ -9,7 +9,7 @@ A simple JWS example in ghci to illustrate:
     > import Jose.Jws
     > import Jose.Jwa
     > hmacEncode HS384 "somehmackey" "my JSON message"
-    Right "eyJhbGciOiJIUzM4NCJ9.bXkgSlNPTiBtZXNzYWdl.cNfy9RU8XwOWMr35K562dLOpHnZn3hypK0yrL5cZ3LqLD3FMewiY7Cs45r2auKbw"
+    Right (Jwt {unJwt = "eyJhbGciOiJIUzM4NCJ9.bXkgSlNPTiBtZXNzYWdl.cNfy9RU8XwOWMr35K562dLOpHnZn3hypK0yrL5cZ3LqLD3FMewiY7Cs45r2auKbw"})j
     > hmacDecode "somehmackey" "eyJhbGciOiJIUzM4NCJ9.bXkgSlNPTiBtZXNzYWdl.cNfy9RU8XwOWMr35K562dLOpHnZn3hypK0yrL5cZ3LqLD3FMewiY7Cs45r2auKbw"
     Right (JwsHeader {jwsAlg = HS384, jwsTyp = Nothing, jwsCty = Nothing, jwsKid = Nothing},"my JSON message")
 

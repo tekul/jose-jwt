@@ -49,7 +49,7 @@ spec =
 
       it "encodes the payload to the expected JWT, leaving the RNG empty" $ do
         let g = RNG $ B.concat [a1cek, a1iv, a1oaepSeed]
-        Jwe.rsaEncode g RSA_OAEP A256GCM a1PubKey a1Payload @?= (a1, RNG "")
+        Jwe.rsaEncode g RSA_OAEP A256GCM a1PubKey a1Payload @?= (Jwt a1, RNG "")
 
       it "decodes the JWT to the expected header and payload" $ do
         (fst $ Jwe.rsaDecode blinderRNG a1PrivKey a1) @?= Right (a1Header, a1Payload)
@@ -78,7 +78,7 @@ spec =
 
       it "encodes the payload to the expected JWT" $ do
         let g = RNG $ B.concat [a2cek, a2iv, a2seed]
-        Jwe.rsaEncode g RSA1_5 A128CBC_HS256 a2PubKey a2Payload @?= (a2, RNG "")
+        Jwe.rsaEncode g RSA1_5 A128CBC_HS256 a2PubKey a2Payload @?= (Jwt a2, RNG "")
 
       it "decrypts the ciphertext to the correct payload" $ do
         decryptPayload A128CBC_HS256 a2cek a2iv aad a2Tag a2Ciphertext @?= Right a2Payload
@@ -97,7 +97,7 @@ spec =
 jweRoundTrip :: RNG -> JWEAlgs -> B.ByteString -> Bool
 jweRoundTrip g (JWEAlgs a e) msg = encodeDecode == Right (defJweHdr {jweAlg = a, jweEnc = e}, msg)
   where
-    encodeDecode = fst $ Jwe.rsaDecode blinderRNG a2PrivKey $ fst $ Jwe.rsaEncode g a e a2PubKey msg
+    encodeDecode = fst $ Jwe.rsaDecode blinderRNG a2PrivKey $ unJwt $ fst $ Jwe.rsaEncode g a e a2PubKey msg
 
 -- A decidedly non-random, random number generator which allows specific
 -- sequences of bytes to be supplied which match the JWE test data.
@@ -124,6 +124,7 @@ blinderRNG = RNG $ B.replicate 2000 255
 -- JWE Appendix 1 Test Data
 --------------------------------------------------------------------------------
 
+a1 :: B.ByteString
 a1 = "eyJhbGciOiJSU0EtT0FFUCIsImVuYyI6IkEyNTZHQ00ifQ.OKOawDo13gRp2ojaHV7LFpZcgV7T6DVZKTyKOMTYUmKoTCVJRgckCL9kiMT03JGeipsEdY3mx_etLbbWSrFr05kLzcSr4qKAq7YN7e9jwQRb23nfa6c9d-StnImGyFDbSv04uVuxIp5Zms1gNxKKK2Da14B8S4rzVRltdYwam_lDp5XnZAYpQdb76FdIKLaVmqgfwX7XWRxv2322i-vDxRfqNzo_tETKzpVLzfiwQyeyPGLBIO56YJ7eObdv0je81860ppamavo35UgoRdbYaBcoh9QcfylQr66oc6vFWXRcZ_ZT2LawVCWTIy3brGPi6UklfCpIMfIjf7iGdXKHzg.48V1_ALb6US04U3b.5eym8TW_c8SuK0ltJ3rpYIzOeDQz7TALvtu6UG9oMo4vpzs9tX_EFShS8iB7j6jiSdiwkIr3ajwQzaBtQD_A.XFBoMYUZodetZdvTiFvSkQ"
 
 a1Payload = "The true sign of intelligence is not knowledge but imagination."
@@ -179,6 +180,7 @@ a2RsaModulus =  2240292473474832241958308786504613697181296452260896528966805086
 
 a2RsaPrivateExponent = 10643756465292254988457796463889735064030094089452909840615134957452106668931481879498770304395097541282329162591478128330968231330113176654221501869950411410564116254672288216799191435916328405513154035654178369543717138143188973636496077305930253145572851787483810154020967535132278148578697716656066036003388130625459567907864689911133288140117207430454310073863484450086676106606775792171446149215594844607410066899028283290532626577379520547350399030663657813726123700613989625283009134539244470878688076926304079342487789922656366430636978871435674556143884272163840709196449089335092169596187792960067104244313
 
+a2 :: B.ByteString
 a2 = "eyJhbGciOiJSU0ExXzUiLCJlbmMiOiJBMTI4Q0JDLUhTMjU2In0.UGhIOguC7IuEvf_NPVaXsGMoLOmwvc1GyqlIKOK1nN94nHPoltGRhWhw7Zx0-kFm1NJn8LE9XShH59_i8J0PH5ZZyNfGy2xGdULU7sHNF6Gp2vPLgNZ__deLKxGHZ7PcHALUzoOegEI-8E66jX2E4zyJKx-YxzZIItRzC5hlRirb6Y5Cl_p-ko3YvkkysZIFNPccxRU7qve1WYPxqbb2Yw8kZqa2rMWI5ng8OtvzlV7elprCbuPhcCdZ6XDP0_F8rkXds2vE4X-ncOIM8hAYHHi29NX0mcKiRaD0-D-ljQTP-cFPgwCp6X-nZZd9OHBv-B3oWh2TbqmScqXMR4gp_A.AxY8DCtDaGlsbGljb3RoZQ.KDlTtXchhZTGufMYmOYGS4HffxPSUrfmqCHXaI9wOGY.9hH0vgRfYgPnAHOd8stkvw"
 
 (a2PubKey, a2PrivKey) = createKeyPair a2RsaModulus a2RsaPrivateExponent

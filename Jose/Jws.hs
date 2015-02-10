@@ -6,7 +6,7 @@
 --
 -- >>> import Jose.Jws
 -- >>> import Jose.Jwa
--- >>> let Right jwt = hmacEncode HS256 "secretmackey" "public claims"
+-- >>> let Right (Jwt jwt) = hmacEncode HS256 "secretmackey" "public claims"
 -- >>> jwt
 -- "eyJhbGciOiJIUzI1NiJ9.cHVibGljIGNsYWltcw.GDV7RdBrCYfCtFCZZGPy_sWry4GwfX3ckMywXUyxBsc"
 -- >>> hmacDecode "wrongkey" jwt
@@ -46,8 +46,8 @@ jwkEncode :: (CPRG g)
           => g
           -> JwsAlg                          -- ^ The algorithm to use
           -> Jwk                             -- ^ The key to sign with
-          -> ByteString                      -- ^ The public JWT claims
-          -> (Either JwtError ByteString, g) -- ^ The encoded token, if successful
+          -> Payload                         -- ^ The public JWT claims
+          -> (Either JwtError Jwt, g)        -- ^ The encoded token, if successful
 jwkEncode rng a key payload = case key of
     RsaPrivateJwk kPr kid _ _ -> rsaEncodeInternal rng a kPr (sigTarget a kid payload)
     SymmetricJwk  k   kid _ _ -> (hmacEncodeInternal a k (sigTarget a kid payload), rng)
@@ -57,14 +57,14 @@ jwkEncode rng a key payload = case key of
 hmacEncode :: JwsAlg       -- ^ The MAC algorithm to use
            -> ByteString   -- ^ The MAC key
            -> ByteString   -- ^ The public JWT claims (token content)
-           -> Either JwtError ByteString   -- ^ The encoded JWS token
-hmacEncode a key payload = hmacEncodeInternal a key (sigTarget a Nothing payload)
+           -> Either JwtError Jwt -- ^ The encoded JWS token
+hmacEncode a key payload = hmacEncodeInternal a key (sigTarget a Nothing (Claims payload))
 
 hmacEncodeInternal :: JwsAlg
                    -> ByteString
                    -> ByteString
-                   -> Either JwtError ByteString
-hmacEncodeInternal a key st = (\mac -> B.concat [st, ".", B64.encode mac]) <$> hmacSign a key st
+                   -> Either JwtError Jwt
+hmacEncodeInternal a key st = Jwt <$> (\mac -> B.concat [st, ".", B64.encode mac]) <$> hmacSign a key st
 
 -- | Decodes and validates an HMAC signed JWS.
 hmacDecode :: ByteString          -- ^ The HMAC key
@@ -78,22 +78,22 @@ rsaEncode :: CPRG g
           -> JwsAlg                           -- ^ The RSA algorithm to use
           -> PrivateKey                       -- ^ The key to sign with
           -> ByteString                       -- ^ The public JWT claims (token content)
-          -> (Either JwtError ByteString, g)  -- ^ The encoded JWS token
-rsaEncode rng a pk payload = rsaEncodeInternal rng a pk (sigTarget a Nothing payload)
+          -> (Either JwtError Jwt, g)  -- ^ The encoded JWS token
+rsaEncode rng a pk payload = rsaEncodeInternal rng a pk (sigTarget a Nothing (Claims payload))
 
 rsaEncodeInternal :: CPRG g
                   => g
                   -> JwsAlg
                   -> PrivateKey
                   -> ByteString
-                  -> (Either JwtError ByteString, g)
+                  -> (Either JwtError Jwt, g)
 rsaEncodeInternal rng a pk st = (sign blinder, rng')
   where
     (blinder, rng') = generateBlinder rng (public_n $ private_pub pk)
 
     sign b = case rsaSign (Just b) a pk st of
-        Right sig -> Right $ B.concat [st, ".", B64.encode sig]
-        err       -> err
+        Right sig -> Right . Jwt $ B.concat [st, ".", B64.encode sig]
+        Left e    -> Left e
 
 -- | Decode and validate an RSA signed JWS.
 rsaDecode :: PublicKey            -- ^ The key to check the signature with
@@ -108,8 +108,13 @@ ecDecode :: ECDSA.PublicKey       -- ^ The key to check the signature with
          -> Either JwtError Jws   -- ^ The decoded token if successful
 ecDecode key = decode (`ecVerify` key)
 
-sigTarget :: JwsAlg -> Maybe KeyId -> ByteString -> ByteString
-sigTarget a kid payload = B.intercalate "." $ map B64.encode [encodeHeader $ defJwsHdr {jwsAlg = a, jwsKid = kid}, payload]
+sigTarget :: JwsAlg -> Maybe KeyId -> Payload -> ByteString
+sigTarget a kid payload = B.intercalate "." $ map B64.encode [encodeHeader hdr, bytes]
+  where
+    hdr = defJwsHdr {jwsAlg = a, jwsKid = kid, jwsCty = contentType}
+    (contentType, bytes) = case payload of
+        Claims c       -> (Nothing, c)
+        Nested (Jwt b) -> (Just "JWT", b)
 
 type JwsVerifier = JwsAlg -> ByteString -> ByteString -> Bool
 
