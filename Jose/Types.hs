@@ -32,6 +32,7 @@ import Data.Int (Int64)
 import Data.Time.Clock.POSIX
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import Data.Vector (singleton)
 import GHC.Generics
 
@@ -108,6 +109,13 @@ instance FromJSON JwtClaims where
 
 instance ToJSON JwtClaims where
     toJSON = genericToJSON claimsOptions
+
+instance ToJSON Jwt where
+    toJSON (Jwt bytes) = String (TE.decodeUtf8 bytes)
+
+instance FromJSON Jwt where
+    parseJSON (String token) = pure $ Jwt (TE.encodeUtf8 token)
+    parseJSON _              = fail "Jwt must be a string"
 
 claimsOptions :: Options
 claimsOptions = prefixOptions "jwt"
