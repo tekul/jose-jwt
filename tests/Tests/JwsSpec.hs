@@ -81,6 +81,11 @@ spec =
           let Just k31 = decodeStrict' a31jwk
           fst (decode RNG [k31] a31) @?= fmap Jws a31decoded
 
+      context "when using an unsecured JWT" $
+        it "decodes the JWT to the expected header and payload" $
+          fst (decode RNG [] jwt61) @?= Right (Unsecured jwt61Payload)
+
+
 signWithHeader sign hdr payload = B.intercalate "." [hdrPayload, B64.encode $ sign hdrPayload]
   where
     hdrPayload = B.intercalate "." $ map B64.encode [hdr, payload]
@@ -90,6 +95,10 @@ hmacRoundTrip a msg = let Right (Jwt encoded) = Jws.hmacEncode a "asecretkey" ms
 
 rsaRoundTrip a msg = let Right (Jwt encoded) = fst $ Jws.rsaEncode RNG a rsaPrivateKey msg
                      in  Jws.rsaDecode rsaPublicKey encoded @?= Right (defJwsHdr {jwsAlg = a}, msg)
+
+-- Unsecured JWT from section 6.1
+jwt61 = "eyJhbGciOiJub25lIn0.eyJpc3MiOiJqb2UiLA0KICJleHAiOjEzMDA4MTkzODAsDQogImh0dHA6Ly9leGFtcGxlLmNvbS9pc19yb290Ijp0cnVlfQ."
+jwt61Payload = a11Payload
 
 a11Header = "{\"typ\":\"JWT\",\r\n \"alg\":\"HS256\"}" :: B.ByteString
 a11Payload = "{\"iss\":\"joe\",\r\n \"exp\":1300819380,\r\n \"http://example.com/is_root\":true}"

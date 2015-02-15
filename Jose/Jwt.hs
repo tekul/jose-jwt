@@ -59,6 +59,11 @@ encode :: (CPRG g)
        -> Payload                    -- ^ The payload (claims)
        -> (Either JwtError Jwt, g)   -- ^ The encoded JWT, if successful
 encode rng jwks alg enc msg = flip runState rng $ runEitherT $ case alg of
+    Signed None -> do
+        unless (isNothing enc) $ left (BadAlgorithm "Enc cannot be set for an unsecured JWT")
+        case msg of
+            Claims p -> return $ Jwt $ BC.intercalate "." [unsecuredHdr, B64.encode p]
+            Nested _ -> left BadClaims
     Signed a    -> do
         unless (isNothing enc) $ left (BadAlgorithm "Enc cannot be set for a JWS")
         case findMatchingJwsKeys jwks (defJwsHdr { jwsAlg = a }) of
@@ -69,7 +74,8 @@ encode rng jwks alg enc msg = flip runState rng $ runEitherT $ case alg of
         case findMatchingJweKeys jwks (defJweHdr { jweAlg = a, jweEnc = e }) of
             []    -> left (KeyError "No matching key found for JWE algorithm")
             (k:_) -> hoistEither =<< state (\g -> Jwe.jwkEncode g a e k msg)
-
+  where
+    unsecuredHdr = B64.encode "{\"alg\":\"none\"}"
 
 
 -- | Uses the supplied keys to decode a JWT.
@@ -86,12 +92,12 @@ decode rng keySet jwt = flip runState rng $ runEitherT $ do
     when (length components < 3) $ left $ BadDots 2
     hdr <- B64.decode (head components) >>= hoistEither . parseHeader
     ks  <- findKeys hdr keySet
-    -- Now we have one or more suitable keys.
+    -- Now we have one or more suitable keys (or none for the unsecured case).
     -- Try each in turn until successful
-    let decodeWith = case hdr of
-                       JwsH _ -> decodeWithJws
-                       _      -> decodeWithJwe
-    decodings <- mapM decodeWith ks
+    decodings <- case hdr of
+        UnsecuredH -> B64.decode (components !! 1) >>= \p -> return [Just (Unsecured p)]
+        JwsH _     -> mapM decodeWithJws ks
+        _          -> mapM decodeWithJwe ks
     maybe (left $ KeyError "None of the keys was able to decode the JWT") (return . fromJust) $ find isJust decodings
   where
     decodeWithJws :: CPRG g => Jwk -> EitherT JwtError (State g) (Maybe JwtContent)
@@ -128,9 +134,10 @@ decodeClaims jwt = do
 
 
 findKeys :: Monad m => JwtHeader -> [Jwk] -> EitherT JwtError m [Jwk]
-findKeys hdr jwks = checkKeys $ case hdr of
-    JweH h -> findMatchingJweKeys jwks h
-    JwsH h -> findMatchingJwsKeys jwks h
+findKeys hdr jwks = case hdr of
+    JweH h -> checkKeys $ findMatchingJweKeys jwks h
+    JwsH h -> checkKeys $ findMatchingJwsKeys jwks h
+    UnsecuredH -> return []
   where
     -- TODO Move checks to JWK and support better error messages
     checkKeys [] = left $ KeyError "No suitable key was found to decode the JWT"

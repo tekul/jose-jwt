@@ -127,6 +127,7 @@ decode verify jwt = do
     hdr <- case parseHeader h of
         Right (JwsH jwsHdr) -> return jwsHdr
         Right (JweH _)      -> Left (BadHeader "Header is for a JWE")
+        Right UnsecuredH    -> Left (BadHeader "Header is for an unsecured JWT")
         Left e              -> Left e
     if verify (jwsAlg hdr) hdrPayload sigBytes
       then Right (hdr, payload)

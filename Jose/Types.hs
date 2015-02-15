@@ -52,11 +52,12 @@ type Jws = (JwsHeader, ByteString)
 -- | The header and claims of a decoded JWE.
 type Jwe = (JweHeader, ByteString)
 
--- | A decoded JWT which can be either a JWE or a JWS.
-data JwtContent = Jws !Jws | Jwe !Jwe deriving (Show, Eq)
+-- | A decoded JWT which can be either a JWE or a JWS, or an unsecured JWT.
+data JwtContent = Unsecured !ByteString | Jws !Jws | Jwe !Jwe deriving (Show, Eq)
 
 data JwtHeader = JweH JweHeader
                | JwsH JwsHeader
+               | UnsecuredH
                  deriving (Show)
 
 type KeyId   = Text
@@ -121,7 +122,7 @@ claimsOptions :: Options
 claimsOptions = prefixOptions "jwt"
 
 defJwsHdr :: JwsHeader
-defJwsHdr = JwsHeader None Nothing Nothing Nothing
+defJwsHdr = JwsHeader RS256 Nothing Nothing Nothing
 
 defJweHdr :: JweHeader
 defJweHdr = JweHeader RSA_OAEP A128GCM Nothing Nothing Nothing Nothing
@@ -150,9 +151,11 @@ instance FromJSON JweHeader where
     parseJSON = genericParseJSON jweOptions
 
 instance FromJSON JwtHeader where
-    parseJSON v@(Object o) = case H.lookup "enc" o of
-        Nothing -> JwsH <$> parseJSON v
-        _       -> JweH <$> parseJSON v
+    parseJSON v@(Object o) = case H.lookup "alg" o of
+        Just (String "none") -> pure UnsecuredH
+        _                    -> case H.lookup "enc" o of
+            Nothing -> JwsH <$> parseJSON v
+            _       -> JweH <$> parseJSON v
     parseJSON _            = fail "JwtHeader must be an object"
 
 encodeHeader :: ToJSON a => a -> ByteString

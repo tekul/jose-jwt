@@ -100,6 +100,7 @@ rsaDecode rng pk jwt = (decode blinder, rng')
         hdr <- case parseHeader h of
             Right (JweH jweHdr) -> return jweHdr
             Right (JwsH _)      -> Left (BadHeader "Header is for a JWS")
+            Right UnsecuredH    -> Left (BadHeader "Header is for an unsecured JWT")
             Left e              -> Left e
         let alg = jweAlg hdr
         cek    <- rsaDecrypt (Just b) alg pk ek
