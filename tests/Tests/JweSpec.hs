@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# OPTIONS_GHC -fno-warn-missing-signatures #-}
+{-# OPTIONS_GHC -fno-warn-missing-signatures -fno-warn-orphans #-}
 
 module Tests.JweSpec where
 
@@ -7,6 +7,7 @@ import Control.Applicative
 import Data.Aeson (eitherDecode, decodeStrict')
 import Data.Bits (xor)
 import Data.Either.Combinators
+import Data.Word (Word8)
 import qualified Data.ByteString as B
 import Test.Hspec
 import Test.HUnit hiding (Test)
@@ -63,41 +64,42 @@ spec =
       it "decodes the JWT using the JWK" $ do
         let Right k1 = eitherDecode a1jwk
             Just  k2 = decodeStrict' a2jwk
-        (fst $ decode blinderRNG [k2, k1] a1) @?= (Right $ Jwe (a1Header, a1Payload))
+        fst (decode blinderRNG [k2, k1] a1) @?= (Right $ Jwe (a1Header, a1Payload))
 
     context "when using JWE Appendix 2 data" $ do
       let a2Header = defJweHdr {jweAlg = RSA1_5, jweEnc = A128CBC_HS256}
       let aad = B64.encode . encodeHeader $ a2Header
 
       it "generates the expected RSA-encrypted content key" $ do
-        let g = RNG $ a2seed
+        let g = RNG a2seed
         rsaEncrypt g RSA1_5 a2PubKey a2cek @?= (a2jweKey, RNG "")
 
-      it "encrypts the payload to the expected ciphertext and authentication tag" $ do
+      it "encrypts the payload to the expected ciphertext and authentication tag" $
         encryptPayload A128CBC_HS256 a2cek a2iv aad a2Payload @?= (a2Ciphertext, AuthTag a2Tag)
 
       it "encodes the payload to the expected JWT" $ do
         let g = RNG $ B.concat [a2cek, a2iv, a2seed]
         Jwe.rsaEncode g RSA1_5 A128CBC_HS256 a2PubKey a2Payload @?= (Jwt a2, RNG "")
 
-      it "decrypts the ciphertext to the correct payload" $ do
+      it "decrypts the ciphertext to the correct payload" $
         decryptPayload A128CBC_HS256 a2cek a2iv aad a2Tag a2Ciphertext @?= Right a2Payload
 
-      it "decodes the JWT to the expected header and payload" $ do
-        (fst $ Jwe.rsaDecode blinderRNG a2PrivKey a2) @?= Right (a2Header, a2Payload)
+      it "decodes the JWT to the expected header and payload" $
+        fst (Jwe.rsaDecode blinderRNG a2PrivKey a2) @?= Right (a2Header, a2Payload)
 
     context "when used with quickcheck" $ do
       it "padded msg is always a multiple of 16" $ property $
-        \bs -> B.length (pad bs) `mod` 16 == 0
+        \s -> B.length (pad (B.pack s)) `mod` 16 == 0
       it "unpad is the inverse of pad" $ property $
-        \bs -> (fromRight' . unpad . pad) bs == bs
-      it "jwe decode/decode returns the original payload" $ property $ jweRoundTrip
+        \s -> let msg = B.pack s in (fromRight' . unpad . pad) msg == msg
+      it "jwe decode/decode returns the original payload" $ property jweRoundTrip
 
 -- verboseQuickCheckWith quickCheckWith stdArgs {maxSuccess=10000}  jweRoundTrip
-jweRoundTrip :: RNG -> JWEAlgs -> B.ByteString -> Bool
-jweRoundTrip g (JWEAlgs a e) msg = encodeDecode == Right (defJweHdr {jweAlg = a, jweEnc = e}, msg)
+jweRoundTrip :: RNG -> JWEAlgs -> [Word8] -> Bool
+jweRoundTrip g (JWEAlgs a e) msg = encodeDecode == Right (defJweHdr {jweAlg = a, jweEnc = e}, bs)
   where
-    encodeDecode = fst $ Jwe.rsaDecode blinderRNG a2PrivKey $ unJwt $ fst $ Jwe.rsaEncode g a e a2PubKey msg
+    bs = B.pack msg
+    encodeDecode = fst $ Jwe.rsaDecode blinderRNG a2PrivKey $ unJwt $ fst $ Jwe.rsaEncode g a e a2PubKey bs
 
 -- A decidedly non-random, random number generator which allows specific
 -- sequences of bytes to be supplied which match the JWE test data.
@@ -194,9 +196,6 @@ a2seed = extractPKCS15Seed a2PrivKey a2jweKey
 
 -- Valid JWE Alg/Enc combinations
 data JWEAlgs = JWEAlgs JweAlg Enc deriving Show
-
-instance Arbitrary B.ByteString where
-    arbitrary = B.pack <$> arbitrary
 
 instance Arbitrary Enc where
     arbitrary = elements [A128CBC_HS256, A256CBC_HS512, A128GCM, A256GCM]
