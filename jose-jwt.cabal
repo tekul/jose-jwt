@@ -70,10 +70,12 @@ Test-suite tests
                     , Tests.JweSpec
   Build-depends:      jose-jwt
                     , base
+                    , aeson-qq
                     , bytestring
                     , base64-bytestring
                     , cryptohash
                     , crypto-pubkey
+                    , crypto-pubkey-types
                     , crypto-random
                     , crypto-cipher-types
                     , cipher-aes

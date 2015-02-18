@@ -3,7 +3,7 @@
 
 module Jose.Jwk
     ( KeyType
-    , KeyUse
+    , KeyUse (..)
     , KeyId
     , Jwk (..)
     , JwkSet (..)
@@ -46,8 +46,8 @@ data KeyUse  = Sig
 
 data Jwk = RsaPublicJwk  RSA.PublicKey (Maybe KeyId) (Maybe KeyUse) (Maybe Alg)
          | RsaPrivateJwk RSA.PrivateKey (Maybe KeyId) (Maybe KeyUse) (Maybe Alg)
-         | EcPublicJwk   ECDSA.PublicKey (Maybe KeyId) (Maybe KeyUse) (Maybe Alg)
-         | EcPrivateJwk  ECDSA.KeyPair  (Maybe KeyId) (Maybe KeyUse) (Maybe Alg)
+         | EcPublicJwk   ECDSA.PublicKey (Maybe KeyId) (Maybe KeyUse) (Maybe Alg) EcCurve
+         | EcPrivateJwk  ECDSA.KeyPair   (Maybe KeyId) (Maybe KeyUse) (Maybe Alg) EcCurve
          | SymmetricJwk  ByteString (Maybe KeyId) (Maybe KeyUse) (Maybe Alg)
            deriving (Show, Eq)
 
@@ -101,8 +101,8 @@ jwkId :: Jwk -> Maybe KeyId
 jwkId key = case key of
     RsaPublicJwk  _ keyId _ _ -> keyId
     RsaPrivateJwk _ keyId _ _ -> keyId
-    EcPublicJwk   _ keyId _ _ -> keyId
-    EcPrivateJwk  _ keyId _ _ -> keyId
+    EcPublicJwk   _ keyId _ _ _ -> keyId
+    EcPrivateJwk  _ keyId _ _ _ -> keyId
     SymmetricJwk  _ keyId _ _ -> keyId
 
 
@@ -110,8 +110,8 @@ jwkUse :: Jwk -> Maybe KeyUse
 jwkUse key = case key of
     RsaPublicJwk  _ _ u _ -> u
     RsaPrivateJwk _ _ u _ -> u
-    EcPublicJwk   _ _ u _ -> u
-    EcPrivateJwk  _ _ u _ -> u
+    EcPublicJwk   _ _ u _ _ -> u
+    EcPrivateJwk  _ _ u _ _ -> u
     SymmetricJwk  _ _ u _ -> u
 
 findKeyById :: [Jwk] -> KeyId -> Maybe Jwk
@@ -215,16 +215,17 @@ instance ToJSON Jwk where
             , alg = mAlg
             }
 
-        EcPublicJwk pubKey mId mUse mAlg -> defJwk
+        EcPublicJwk pubKey mId mUse mAlg c -> defJwk
             { kty = Ec
             , x   = fst (ecPoint pubKey)
             , y   = snd (ecPoint pubKey)
             , kid = mId
             , use = mUse
             , alg = mAlg
+            , crv = Just c
             }
 
-        EcPrivateJwk kp mId mUse mAlg -> defJwk
+        EcPrivateJwk kp mId mUse mAlg c -> defJwk
             { kty = Ec
             , x   = fst (ecPoint (ECDSA.toPublicKey kp))
             , y   = snd (ecPoint (ECDSA.toPublicKey kp))
@@ -232,6 +233,7 @@ instance ToJSON Jwk where
             , kid = mId
             , use = mUse
             , alg = mAlg
+            , crv = Just c
             }
       where
         i2b 0 = Nothing
@@ -314,10 +316,10 @@ createJwk kd = case kd of
     J Oct Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing (Just kb) Nothing Nothing Nothing u a i Nothing Nothing Nothing ->
         return $ SymmetricJwk (bytes kb) i u a
     J Ec  Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing (Just crv') (Just xb) (Just yb) u a i Nothing Nothing Nothing ->
-        return $ EcPublicJwk (ECDSA.PublicKey (curve crv') (ecPoint xb yb)) i u a
+        return $ EcPublicJwk (ECDSA.PublicKey (curve crv') (ecPoint xb yb)) i u a crv'
     J Ec  Nothing Nothing (Just db) Nothing Nothing Nothing Nothing Nothing Nothing (Just crv') (Just xb) (Just yb) u a i Nothing Nothing Nothing ->
-        return $ EcPrivateJwk (ECDSA.KeyPair (curve crv') (ecPoint xb yb) (os2ip (bytes db))) i u a
-    _ -> Left "Invalid key data. Didn't match any known JWK parameter combinations."
+        return $ EcPrivateJwk (ECDSA.KeyPair (curve crv') (ecPoint xb yb) (os2ip (bytes db))) i u a crv'
+    _ -> Left $ "Invalid key data. Didn't match any known JWK parameter combinations:" ++ show kd
   where
     rsaPub  nb eb  = let m  = os2ip $ bytes nb
                          ex = os2ip $ bytes eb

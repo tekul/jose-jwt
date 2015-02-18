@@ -104,8 +104,8 @@ decode rng keySet jwt = flip runState rng $ runEitherT $ do
     decodeWithJws k = either (const $ return Nothing) (return . Just . Jws) $ case k of
         RsaPublicJwk  kPub _ _ _ -> Jws.rsaDecode kPub jwt
         RsaPrivateJwk kPr  _ _ _ -> Jws.rsaDecode (private_pub kPr) jwt
-        EcPublicJwk   kPub _ _ _ -> Jws.ecDecode kPub jwt
-        EcPrivateJwk  kPr  _ _ _ -> Jws.ecDecode (ECDSA.toPublicKey kPr) jwt
+        EcPublicJwk   kPub _ _ _ _ -> Jws.ecDecode kPub jwt
+        EcPrivateJwk  kPr  _ _ _ _ -> Jws.ecDecode (ECDSA.toPublicKey kPr) jwt
         SymmetricJwk  kb   _ _ _ -> Jws.hmacDecode kb jwt
 
     decodeWithJwe :: CPRG g => Jwk -> EitherT JwtError (State g) (Maybe JwtContent)
