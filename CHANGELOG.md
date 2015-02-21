@@ -1,3 +1,11 @@
+0.4
+---
+
+* Changed use of `Jwt` type to represent an encoded JWT.
+* Introduced `Payload` type to allow setting the `cty` header value correctly for nested JWTs.
+* Added an explicit `Unsecured` type for a decoded JWT, to make it obvious when the content is not signed or encrypted.
+* Fixed some bugs in JSON encoding and decoding of EC JWKs.
+
 0.3.1
 -----
 
