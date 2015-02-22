@@ -1,3 +1,8 @@
+0.4.1
+-----
+
+* Add cprng-aes dependency to doctests to stop test failure on travis and nixos hydra builds.
+
 0.4
 ---
 
