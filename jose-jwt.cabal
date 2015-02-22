@@ -103,6 +103,7 @@ Benchmark bench-jwt
   Default-Language:   Haskell2010
   Hs-source-dirs:     benchmarks
   Main-is:            bench.hs
+  Other-Modules:      Keys
   Type:               exitcode-stdio-1.0
   Build-depends:      jose-jwt
                     , base
