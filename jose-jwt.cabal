@@ -98,6 +98,7 @@ Test-suite doctests
   Ghc-options:        -XOverloadedStrings
   Build-depends:      base
                     , doctest >= 0.9.11
+                    , cprng-aes
 
 Benchmark bench-jwt
   Default-Language:   Haskell2010
