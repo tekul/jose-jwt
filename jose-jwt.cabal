@@ -27,6 +27,11 @@ Category:           JSON, Cryptography
 Extra-Source-Files:
     CHANGELOG.md
 
+-- disable doctests with -f-doctest
+Flag doctest
+  default: True
+  manual: True
+
 Source-Repository head
   Type:             git
   Location:         git://github.com/tekul/jose-jwt.git
@@ -96,7 +101,11 @@ Test-suite doctests
   Type:               exitcode-stdio-1.0
   Main-is:            doctests.hs
   Ghc-options:        -XOverloadedStrings
-  Build-depends:      base
+
+  if !flag(doctest)
+    Buildable: False
+  else
+    Build-depends:    base
                     , doctest >= 0.9.11
                     , cprng-aes
 
