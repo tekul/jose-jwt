@@ -1,3 +1,8 @@
+0.4.1.1
+-------
+
+* Added `doctest` flag to cabal file to allow doctests to be disabled.
+
 0.4.1
 -----
 
