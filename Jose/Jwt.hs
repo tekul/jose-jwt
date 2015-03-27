@@ -66,12 +66,12 @@ encode rng jwks alg enc msg = flip runState rng $ runEitherT $ case alg of
             Nested _ -> left BadClaims
     Signed a    -> do
         unless (isNothing enc) $ left (BadAlgorithm "Enc cannot be set for a JWS")
-        case findMatchingJwsKeys jwks (defJwsHdr { jwsAlg = a }) of
+        case filter (canEncodeJws a) jwks of
             []    -> left (KeyError "No matching key found for JWS algorithm")
             (k:_) -> hoistEither =<< state (\g -> Jws.jwkEncode g a k msg)
     Encrypted a -> do
         e <- hoistEither $ note (BadAlgorithm "Enc must be supplied for a JWE") enc
-        case findMatchingJweKeys jwks (defJweHdr { jweAlg = a, jweEnc = e }) of
+        case filter (canEncodeJwe a) jwks of
             []    -> left (KeyError "No matching key found for JWE algorithm")
             (k:_) -> hoistEither =<< state (\g -> Jwe.jwkEncode g a e k msg)
   where
@@ -91,13 +91,13 @@ decode rng keySet jwt = flip runState rng $ runEitherT $ do
     let components = BC.split '.' jwt
     when (length components < 3) $ left $ BadDots 2
     hdr <- B64.decode (head components) >>= hoistEither . parseHeader
-    ks  <- findKeys hdr keySet
+    ks  <- findDecodingKeys hdr keySet
     -- Now we have one or more suitable keys (or none for the unsecured case).
     -- Try each in turn until successful
     decodings <- case hdr of
         UnsecuredH -> B64.decode (components !! 1) >>= \p -> return [Just (Unsecured p)]
         JwsH _     -> mapM decodeWithJws ks
-        _          -> mapM decodeWithJwe ks
+        JweH _     -> mapM decodeWithJwe ks
     maybe (left $ KeyError "None of the keys was able to decode the JWT") (return . fromJust) $ find isJust decodings
   where
     decodeWithJws :: CPRG g => Jwk -> EitherT JwtError (State g) (Maybe JwtContent)
@@ -133,10 +133,10 @@ decodeClaims jwt = do
     parseClaims bs = maybe (Left BadClaims) Right $ decodeStrict' bs
 
 
-findKeys :: Monad m => JwtHeader -> [Jwk] -> EitherT JwtError m [Jwk]
-findKeys hdr jwks = case hdr of
-    JweH h -> checkKeys $ findMatchingJweKeys jwks h
-    JwsH h -> checkKeys $ findMatchingJwsKeys jwks h
+findDecodingKeys :: Monad m => JwtHeader -> [Jwk] -> EitherT JwtError m [Jwk]
+findDecodingKeys hdr jwks = case hdr of
+    JweH h -> checkKeys $ filter (canDecodeJwe h) jwks
+    JwsH h -> checkKeys $ filter (canDecodeJws h) jwks
     UnsecuredH -> return []
   where
     -- TODO Move checks to JWK and support better error messages

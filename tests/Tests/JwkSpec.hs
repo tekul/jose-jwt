@@ -11,6 +11,7 @@ import qualified Data.ByteString.Char8 ()
 import Crypto.Types.PubKey.ECDSA
 import Crypto.Types.PubKey.ECC
 
+import Jose.Jwt (defJwsHdr, JwsHeader(..))
 import Jose.Jwk
 import Jose.Jwa
 
@@ -34,11 +35,11 @@ Object keySet = [aesonQQ|
 
 
 spec :: Spec
-spec =
-    describe "JWK encoding and decoding" $
+spec = do
+    let Success s@(JwkSet _) = fromJSON (Object keySet) :: Result JwkSet
+    describe "JWK encoding and decoding" $ do
         it "decodes and encodes an entire key set successfully" $ do
-            let Success s@(JwkSet _) = fromJSON (Object keySet) :: Result JwkSet
-                Just s' = decode' (encode s) :: Maybe JwkSet
+            let Just s' = decode' (encode s) :: Maybe JwkSet
                 kss = keys s'
                 RsaPublicJwk  _ key0Id key0Use    a0   = head kss
                 RsaPublicJwk  _ key1Id key1Use    _    = kss !! 1
@@ -67,3 +68,23 @@ spec =
             a6      @?= Just (Signed RS256)
             a8      @?= Just (Signed RS256)
 
+    describe "JWK Algorithm matching" $ do
+        let jwks = keys s
+        it "finds one key for RS256 encoding" $ do
+            -- Only the RSA Private key
+            let jwks' = filter (canEncodeJws RS256) jwks
+            length jwks' @?= 1
+
+        it "finds 3 keys for RS256 decoding with no kid" $ do
+            -- All RSA keys are valid except for the "enc" one
+            let jwks' = filter (canDecodeJws (defJwsHdr {jwsAlg = RS256})) jwks
+            length jwks' @?= 3
+
+        it "finds one key for RS256 decoding with kid specified" $ do
+            let jwks' = filter (canDecodeJws (defJwsHdr {jwsAlg = RS256, jwsKid = Just "a1"})) jwks
+            length jwks' @?= 1
+
+        it "finds an RS1_5 key for encoding" $ do
+            -- Only key a0 matches. The other 3 RSA keys are signing keys
+            let jwks' = filter (canEncodeJwe RSA1_5) jwks
+            length jwks' @?= 1

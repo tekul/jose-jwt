@@ -7,14 +7,14 @@ module Jose.Jwk
     , KeyId
     , Jwk (..)
     , JwkSet (..)
-    , validateForJws
-    , findMatchingJwsKeys
-    , findMatchingJweKeys
+    , canDecodeJws
+    , canDecodeJwe
+    , canEncodeJws
+    , canEncodeJwe
     )
 where
 
 import           Control.Applicative (pure)
-import           Control.Monad (when)
 import qualified Crypto.PubKey.RSA as RSA
 import qualified Crypto.PubKey.ECC.ECDSA as ECDSA
 import qualified Crypto.Types.PubKey.ECC as ECC
@@ -28,7 +28,7 @@ import           GHC.Generics (Generic)
 
 import qualified Jose.Internal.Base64 as B64
 import           Jose.Jwa
-import           Jose.Types (JwtError(..), KeyId, JwsHeader(..), JweHeader(..))
+import           Jose.Types (KeyId, JwsHeader(..), JweHeader(..))
 
 data KeyType = Rsa
              | Ec
@@ -55,41 +55,70 @@ data JwkSet = JwkSet
     { keys :: [Jwk]
     } deriving (Show, Eq, Generic)
 
-validateForJws :: JwsAlg -> Jwk -> Either JwtError ()
-validateForJws a jwk = do
-    when (jwkUse jwk == Just Enc) $ Left (KeyError "JWK is for encryption only")
-    either (Left . KeyError) (const $ Right ()) $ case a of
-        HS256 -> mustBeSymmetric
-        HS384 -> mustBeSymmetric
-        HS512 -> mustBeSymmetric
-        RS256 -> mustBeRsa
-        RS384 -> mustBeRsa
-        RS512 -> mustBeRsa
-        ES256 -> mustBeEc
-        ES384 -> mustBeEc
-        ES512 -> mustBeEc
-        None  -> Left "JWS with alg 'None' does not require a key"
- where
-    mustBeRsa       = case jwk of
-        RsaPrivateJwk {} -> Right ()
-        RsaPublicJwk  {} -> Right ()
-        _                -> Left "JWK must be an RSA key"
-    mustBeSymmetric = case jwk of
-        SymmetricJwk {}  -> Right ()
-        _                -> Left "JWK must be symmetric"
-    mustBeEc        = case jwk of
-        EcPrivateJwk {}  -> Right ()
-        EcPublicJwk  {}  -> Right ()
-        _                -> Left "JWK must be an EC key"
+canDecodeJws :: JwsHeader -> Jwk -> Bool
+canDecodeJws hdr jwk = jwkUse jwk /= Just Enc &&
+    keyIdCompatible (jwsKid hdr) jwk &&
+    algCompatible (Signed (jwsAlg hdr)) jwk &&
+    case (jwsAlg hdr, jwk) of
+        (RS256, RsaPublicJwk {}) -> True
+        (RS384, RsaPublicJwk {}) -> True
+        (RS512, RsaPublicJwk {}) -> True
+        (RS256, RsaPrivateJwk {}) -> True
+        (RS384, RsaPrivateJwk {}) -> True
+        (RS512, RsaPrivateJwk {}) -> True
+        (HS256, SymmetricJwk {}) -> True
+        (HS384, SymmetricJwk {}) -> True
+        (HS512, SymmetricJwk {}) -> True
+        (ES256, EcPublicJwk {})  -> True
+        (ES384, EcPublicJwk {})  -> True
+        (ES512, EcPublicJwk {})  -> True
+        (ES256, EcPrivateJwk {})  -> True
+        (ES384, EcPrivateJwk {})  -> True
+        (ES512, EcPrivateJwk {})  -> True
+        _                        -> False
 
-canDecodeJws :: JwsAlg -> Jwk -> Bool
-canDecodeJws al jwk = either (const False) (const True) $ validateForJws al jwk
+canEncodeJws :: JwsAlg -> Jwk -> Bool
+canEncodeJws a jwk = jwkUse jwk /= Just Enc &&
+    algCompatible (Signed a) jwk &&
+    case (a, jwk) of
+        (RS256, RsaPrivateJwk {}) -> True
+        (RS384, RsaPrivateJwk {}) -> True
+        (RS512, RsaPrivateJwk {}) -> True
+        (HS256, SymmetricJwk {})  -> True
+        (HS384, SymmetricJwk {})  -> True
+        (HS512, SymmetricJwk {})  -> True
+        (ES256, EcPrivateJwk {})  -> True
+        (ES384, EcPrivateJwk {})  -> True
+        (ES512, EcPrivateJwk {})  -> True
+        _                         -> False
 
-canDecodeJwe :: JweAlg -> Jwk -> Bool
-canDecodeJwe _ jwk = jwkUse jwk /= Just Sig &&
-    case jwk of
-        RsaPrivateJwk {} -> True
-        _                -> False
+canDecodeJwe :: JweHeader -> Jwk -> Bool
+canDecodeJwe hdr jwk = jwkUse jwk /= Just Sig &&
+    keyIdCompatible (jweKid hdr) jwk &&
+    algCompatible (Encrypted (jweAlg hdr)) jwk &&
+    case (jweAlg hdr, jwk) of
+        (RSA1_5,   RsaPrivateJwk {}) -> True
+        (RSA_OAEP, RsaPrivateJwk {}) -> True
+        _                            -> False
+
+canEncodeJwe :: JweAlg -> Jwk -> Bool
+canEncodeJwe a jwk = jwkUse jwk /= Just Sig &&
+    algCompatible (Encrypted a) jwk &&
+    case (a, jwk) of
+        (RSA1_5,   RsaPublicJwk {}) -> True
+        (RSA_OAEP, RsaPublicJwk {}) -> True
+        (RSA1_5,   RsaPrivateJwk {}) -> True
+        (RSA_OAEP, RsaPrivateJwk {}) -> True
+        _                           -> False
+
+keyIdCompatible :: Maybe KeyId -> Jwk -> Bool
+keyIdCompatible Nothing _ = True
+keyIdCompatible id' jwk   = id' == jwkId jwk
+
+algCompatible :: Alg -> Jwk -> Bool
+algCompatible a k' = case jwkAlg k' of
+    Nothing -> True
+    Just ka -> a == ka
 
 curve :: EcCurve -> ECC.Curve
 curve c = ECC.getCurveByName $ case c of
@@ -105,7 +134,6 @@ jwkId key = case key of
     EcPrivateJwk  _ keyId _ _ _ -> keyId
     SymmetricJwk  _ keyId _ _ -> keyId
 
-
 jwkUse :: Jwk -> Maybe KeyUse
 jwkUse key = case key of
     RsaPublicJwk  _ _ u _ -> u
@@ -114,25 +142,15 @@ jwkUse key = case key of
     EcPrivateJwk  _ _ u _ _ -> u
     SymmetricJwk  _ _ u _ -> u
 
-findKeyById :: [Jwk] -> KeyId -> Maybe Jwk
-findKeyById [] _       = Nothing
-findKeyById (key:ks) keyId = case jwkId key of
-    Nothing -> findKeyById ks keyId
-    Just v  -> if v == keyId
-                   then Just key
-                   else findKeyById ks keyId
+jwkAlg :: Jwk -> Maybe Alg
+jwkAlg key = case key of
+    RsaPublicJwk  _ _ _ a -> a
+    RsaPrivateJwk _ _ _ a -> a
+    EcPublicJwk   _ _ _ a _ -> a
+    EcPrivateJwk  _ _ _ a _ -> a
+    SymmetricJwk  _ _ _ a -> a
 
--- TODO filter by key use
-findMatchingJwsKeys :: [Jwk] -> JwsHeader -> [Jwk]
-findMatchingJwsKeys jwks hdr = filter (canDecodeJws (jwsAlg hdr)) $ filterById (jwsKid hdr) jwks
 
-filterById :: Maybe KeyId -> [Jwk] -> [Jwk]
-filterById keyId jwks = case keyId of
-        Just i  -> maybe jwks (:[]) $ findKeyById jwks i
-        Nothing -> jwks
-
-findMatchingJweKeys :: [Jwk] -> JweHeader -> [Jwk]
-findMatchingJweKeys jwks hdr = filter (canDecodeJwe (jweAlg hdr)) $ filterById (jweKid hdr) jwks
 
 newtype JwkBytes = JwkBytes {bytes :: ByteString} deriving (Show)
 
