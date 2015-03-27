@@ -1,3 +1,8 @@
+0.4.2
+-----
+
+* Fix in the code for finding suitable JWKs for encoding/decoding.
+
 0.4.1.1
 -------
 
