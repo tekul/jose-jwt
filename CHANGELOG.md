@@ -1,3 +1,8 @@
+0.5
+---
+
+* Add JwtEncoding type. Changes API of `Jwt.encode` and `Jwt.decode`.
+
 0.4.2
 -----
 
