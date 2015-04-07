@@ -14,8 +14,8 @@
 -- >>> g <- makeSystem
 -- >>> let jsonJwk = "{\"kty\":\"RSA\", \"kid\":\"mykey\", \"n\":\"ofgWCuLjybRlzo0tZWJjNiuSfb4p4fAkd_wWJcyQoTbji9k0l8W26mPddxHmfHQp-Vaw-4qPCJrcS2mJPMEzP1Pt0Bm4d4QlL-yRT-SFd2lZS-pCgNMsD1W_YpRPEwOWvG6b32690r2jZ47soMZo9wGzjb_7OMg0LOL-bSf63kpaSHSXndS5z5rexMdbBYUsLA9e-KXBdQOS-UTo7WTBEMa2R2CapHg665xsmtdVMTBQY4uDZlxvb3qCo5ZwKh9kG4LT6_I5IhlJH7aGhyxXFvUK-DWNmoudF8NAco9_h9iaGNj8q2ethFkMLs91kzk2PAcDTW9gb54h4FRWyuXpoQ\", \"e\":\"AQAB\", \"d\":\"Eq5xpGnNCivDflJsRQBXHx1hdR1k6Ulwe2JZD50LpXyWPEAeP88vLNO97IjlA7_GQ5sLKMgvfTeXZx9SE-7YwVol2NXOoAJe46sui395IW_GO-pWJ1O0BkTGoVEn2bKVRUCgu-GjBVaYLU6f3l9kJfFNS3E0QbVdxzubSu3Mkqzjkn439X0M_V51gfpRLI9JYanrC4D4qAdGcopV_0ZHHzQlBjudU2QvXt4ehNYTCBr6XCLQUShb1juUO1ZdiYoFaFQT5Tw8bGUl_x_jTj3ccPDVZFD9pIuhLhBOneufuBiB4cS98l2SR_RQyGWSeWjnczT0QU91p1DhOVRuOopznQ\"}" :: ByteString
 -- >>> let Just jwk = decodeStrict jsonJwk :: Maybe Jwk
--- >>> let (Right (Jwt jwtEncoded), g')  = encode g [jwk] (Signed RS256) Nothing (Claims "public claims")
--- >>> let (Right jwtDecoded, g'') = Jose.Jwt.decode g' [jwk] jwtEncoded
+-- >>> let (Right (Jwt jwtEncoded), g')  = encode g [jwk] (JwsEncoding RS256) (Claims "public claims")
+-- >>> let (Right jwtDecoded, g'') = Jose.Jwt.decode g' [jwk] (Just (JwsEncoding RS256)) jwtEncoded
 -- >>> jwtDecoded
 -- Jws (JwsHeader {jwsAlg = RS256, jwsTyp = Nothing, jwsCty = Nothing, jwsKid = Just "mykey"},"public claims")
 
@@ -49,45 +49,45 @@ import qualified Jose.Jwe as Jwe
 
 -- | Use the supplied JWKs to create a JWT.
 -- The list of keys will be searched to locate one which is
--- consistent with the chosen algorithm.
+-- consistent with the chosen encoding algorithms.
 --
 encode :: (CPRG g)
-       => g                          -- ^ Random number generator.
+       => g                          -- ^ Random number generator
        -> [Jwk]                      -- ^ The key or keys. At least one must be consistent with the chosen algorithm
-       -> Alg                        -- ^ The JWS or JWE algorithm
-       -> Maybe Enc                  -- ^ The payload encryption algorithm (if applicable)
+       -> JwtEncoding                -- ^ The encoding algorithm(s) used to encode the payload
        -> Payload                    -- ^ The payload (claims)
        -> (Either JwtError Jwt, g)   -- ^ The encoded JWT, if successful
-encode rng jwks alg enc msg = flip runState rng $ runEitherT $ case alg of
-    Signed None -> do
-        unless (isNothing enc) $ left (BadAlgorithm "Enc cannot be set for an unsecured JWT")
-        case msg of
-            Claims p -> return $ Jwt $ BC.intercalate "." [unsecuredHdr, B64.encode p]
-            Nested _ -> left BadClaims
-    Signed a    -> do
-        unless (isNothing enc) $ left (BadAlgorithm "Enc cannot be set for a JWS")
-        case filter (canEncodeJws a) jwks of
-            []    -> left (KeyError "No matching key found for JWS algorithm")
-            (k:_) -> hoistEither =<< state (\g -> Jws.jwkEncode g a k msg)
-    Encrypted a -> do
-        e <- hoistEither $ note (BadAlgorithm "Enc must be supplied for a JWE") enc
-        case filter (canEncodeJwe a) jwks of
-            []    -> left (KeyError "No matching key found for JWE algorithm")
-            (k:_) -> hoistEither =<< state (\g -> Jwe.jwkEncode g a e k msg)
+encode rng jwks encoding msg = flip runState rng $ runEitherT $ case encoding of
+    JwsEncoding None -> case msg of
+        Claims p -> return $ Jwt $ BC.intercalate "." [unsecuredHdr, B64.encode p]
+        Nested _ -> left BadClaims
+    JwsEncoding a    -> case filter (canEncodeJws a) jwks of
+        []    -> left (KeyError "No matching key found for JWS algorithm")
+        (k:_) -> hoistEither =<< state (\g -> Jws.jwkEncode g a k msg)
+    JweEncoding a e -> case filter (canEncodeJwe a) jwks of
+        []    -> left (KeyError "No matching key found for JWE algorithm")
+        (k:_) -> hoistEither =<< state (\g -> Jwe.jwkEncode g a e k msg)
   where
     unsecuredHdr = B64.encode "{\"alg\":\"none\"}"
 
 
 -- | Uses the supplied keys to decode a JWT.
 -- Locates a matching key by header @kid@ value where possible
--- or by suitable key type.
--- The JWK @use@ and @alg@ options are currently ignored.
+-- or by suitable key type for the encoding algorithm.
+--
+-- The algorithm(s) used can be optionally be supplied for validation
+-- by setting the @JwtEncoding@ parameter, in which case an error will
+-- be returned if they don't match.
+--
+-- For unsecured tokens (with algorithm "none"), the expected algorithm
+-- must be set to @Just (JwsEncoding None)@ or an error will be returned.
 decode :: CPRG g
        => g                               -- ^ Random number generator. Only used for RSA blinding
        -> [Jwk]                           -- ^ The keys to use for decoding
+       -> Maybe JwtEncoding               -- ^ The expected encoding information
        -> ByteString                      -- ^ The encoded JWT
        -> (Either JwtError JwtContent, g) -- ^ The decoded JWT payload, if successful
-decode rng keySet jwt = flip runState rng $ runEitherT $ do
+decode rng keySet encoding jwt = flip runState rng $ runEitherT $ do
     let components = BC.split '.' jwt
     when (length components < 3) $ left $ BadDots 2
     hdr <- B64.decode (head components) >>= hoistEither . parseHeader
@@ -95,9 +95,15 @@ decode rng keySet jwt = flip runState rng $ runEitherT $ do
     -- Now we have one or more suitable keys (or none for the unsecured case).
     -- Try each in turn until successful
     decodings <- case hdr of
-        UnsecuredH -> B64.decode (components !! 1) >>= \p -> return [Just (Unsecured p)]
-        JwsH _     -> mapM decodeWithJws ks
-        JweH _     -> mapM decodeWithJwe ks
+        UnsecuredH -> do
+            unless (encoding == Just (JwsEncoding None)) $ left (BadAlgorithm "JWT is unsecured but expected 'alg' was not 'none'")
+            B64.decode (components !! 1) >>= \p -> return [Just (Unsecured p)]
+        JwsH h     -> do
+            unless (isNothing encoding || encoding == Just (JwsEncoding (jwsAlg h))) $ left (BadAlgorithm "Expected 'alg' doesn't match JWS header")
+            mapM decodeWithJws ks
+        JweH h     -> do
+            unless (isNothing encoding || encoding == Just (JweEncoding (jweAlg h) (jweEnc h))) $ left (BadAlgorithm "Expected encoding doesn't match JWE header")
+            mapM decodeWithJwe ks
     maybe (left $ KeyError "None of the keys was able to decode the JWT") (return . fromJust) $ find isJust decodings
   where
     decodeWithJws :: CPRG g => Jwk -> EitherT JwtError (State g) (Maybe JwtContent)
@@ -142,4 +148,3 @@ findDecodingKeys hdr jwks = case hdr of
     -- TODO Move checks to JWK and support better error messages
     checkKeys [] = left $ KeyError "No suitable key was found to decode the JWT"
     checkKeys ks = return ks
-

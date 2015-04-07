@@ -10,6 +10,7 @@ module Jose.Types
     , JwsHeader (..)
     , JweHeader (..)
     , JwtContent (..)
+    , JwtEncoding (..)
     , JwtError (..)
     , IntDate (..)
     , Payload (..)
@@ -54,6 +55,14 @@ type Jwe = (JweHeader, ByteString)
 
 -- | A decoded JWT which can be either a JWE or a JWS, or an unsecured JWT.
 data JwtContent = Unsecured !ByteString | Jws !Jws | Jwe !Jwe deriving (Show, Eq)
+
+-- | Defines the encoding information for a JWT.
+--
+-- Used for both encoding new JWTs and validating existing ones.
+data JwtEncoding
+    = JwsEncoding JwsAlg
+    | JweEncoding JweAlg Enc
+      deriving (Eq, Show)
 
 data JwtHeader = JweH JweHeader
                | JwsH JwsHeader

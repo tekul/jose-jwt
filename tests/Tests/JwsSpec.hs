@@ -46,7 +46,7 @@ spec =
 
         it "decodes the payload using the JWK" $ do
           let Just k11 = decodeStrict' a11jwk
-          fst (decode RNG [k11] a11) @?= fmap Jws a11decoded
+          fst (decode RNG [k11] Nothing a11) @?= fmap Jws a11decoded
 
         it "encodes/decodes using HS512" $
           hmacRoundTrip HS512 a11Payload
@@ -60,7 +60,7 @@ spec =
 
         it "decodes the JWT to the expected header and payload with the JWK" $ do
           let Just k21 = decodeStrict' a21jwk
-          fst (decode RNG [k21] a21) @?= (Right $ Jws (defJwsHdr {jwsAlg = RS256}, a21Payload))
+          fst (decode RNG [k21] (Just (JwsEncoding RS256)) a21) @?= (Right $ Jws (defJwsHdr {jwsAlg = RS256}, a21Payload))
 
         it "encodes the payload to the expected JWT" $ do
           let sign = either (error "Sign failed") id . RSAPKCS15.sign Nothing hashDescrSHA256 rsaPrivateKey
@@ -79,11 +79,15 @@ spec =
         let a31decoded = Right (defJwsHdr {jwsAlg = ES256}, a31Payload)
         it "decodes the JWT to the expected header and payload" $ do
           let Just k31 = decodeStrict' a31jwk
-          fst (decode RNG [k31] a31) @?= fmap Jws a31decoded
+          fst (decode RNG [k31] Nothing a31) @?= fmap Jws a31decoded
 
-      context "when using an unsecured JWT" $
+      context "when using an unsecured JWT" $ do
+        it "returns an error if alg is unset" $
+          fst (decode RNG [] Nothing jwt61) @?= Left (BadAlgorithm "JWT is unsecured but expected 'alg' was not 'none'")
+        it "returns an error if alg is is not 'none'" $
+          fst (decode RNG [] (Just (JwsEncoding RS256)) jwt61) @?= Left (BadAlgorithm "JWT is unsecured but expected 'alg' was not 'none'")
         it "decodes the JWT to the expected header and payload" $
-          fst (decode RNG [] jwt61) @?= Right (Unsecured jwt61Payload)
+          fst (decode RNG [] (Just (JwsEncoding None)) jwt61) @?= Right (Unsecured jwt61Payload)
 
 
 signWithHeader sign hdr payload = B.intercalate "." [hdrPayload, B64.encode $ sign hdrPayload]
@@ -152,4 +156,3 @@ rsaPublicKey = RSA.PublicKey
     }
 
 a11mac = hmac SHA256.hash 64 hmacKey
-

@@ -41,7 +41,7 @@ spec =
         generateCmkAndIV g A256GCM @?= (a1cek, a1iv, RNG "")
 
       it "generates the expected RSA-encrypted content key" $ do
-        let g = RNG $ a1oaepSeed
+        let g = RNG a1oaepSeed
         rsaEncrypt g RSA_OAEP a1PubKey a1cek @?= (a1jweKey, RNG "")
 
       it "encrypts the payload to the expected ciphertext and authentication tag" $ do
@@ -52,8 +52,8 @@ spec =
         let g = RNG $ B.concat [a1cek, a1iv, a1oaepSeed]
         Jwe.rsaEncode g RSA_OAEP A256GCM a1PubKey a1Payload @?= (Jwt a1, RNG "")
 
-      it "decodes the JWT to the expected header and payload" $ do
-        (fst $ Jwe.rsaDecode blinderRNG a1PrivKey a1) @?= Right (a1Header, a1Payload)
+      it "decodes the JWT to the expected header and payload" $
+        fst (Jwe.rsaDecode blinderRNG a1PrivKey a1) @?= Right (a1Header, a1Payload)
 
       it "decodes the JWK to the correct RSA key values" $ do
         let Right (Jwk.RsaPrivateJwk (RSA.PrivateKey pubKey d 0 0 0 0 0) _ _ _) = eitherDecode a1jwk
@@ -64,7 +64,7 @@ spec =
       it "decodes the JWT using the JWK" $ do
         let Right k1 = eitherDecode a1jwk
             Just  k2 = decodeStrict' a2jwk
-        fst (decode blinderRNG [k2, k1] a1) @?= (Right $ Jwe (a1Header, a1Payload))
+        fst (decode blinderRNG [k2, k1] (Just $ JweEncoding RSA_OAEP A256GCM) a1) @?= (Right $ Jwe (a1Header, a1Payload))
 
     context "when using JWE Appendix 2 data" $ do
       let a2Header = defJweHdr {jweAlg = RSA1_5, jweEnc = A128CBC_HS256}
@@ -247,4 +247,3 @@ extractOaepSeed key ct = B.pack $ B.zipWith xor maskedSeed seedMask
  -- Decrypt, drop the 02 at the start and take the bytes up to the next 0
 extractPKCS15Seed :: RSA.PrivateKey -> B.ByteString -> B.ByteString
 extractPKCS15Seed key ct = B.takeWhile (/= 0) . B.drop 2 $ dp Nothing key ct
-
