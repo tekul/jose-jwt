@@ -59,7 +59,7 @@ Library
                     , crypto-random >= 0.0.7
                     , crypto-numbers >= 0.2
                     , cipher-aes >= 0.2.6
-                    , errors >= 1.4
+                    , errors >= 1.4 && < 2.0
                     , aeson >= 0.7
                     , text  >= 0.11
                     , time  >= 1.4
