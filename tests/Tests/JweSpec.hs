@@ -9,6 +9,7 @@ import Data.Bits (xor)
 import Data.Either.Combinators
 import Data.Word (Word8)
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Char8 as BC
 import Test.Hspec
 import Test.HUnit hiding (Test)
 import Test.QuickCheck
@@ -38,7 +39,7 @@ spec =
 
       it "generates the expected IV and CMK from the RNG" $ do
         let g = RNG $ B.append a1cek a1iv
-        generateCmkAndIV g A256GCM @?= (a1cek, a1iv, RNG "")
+        generateCmkAndIV g A256GCM @?= ((a1cek, a1iv), RNG "")
 
       it "generates the expected RSA-encrypted content key" $ do
         let g = RNG a1oaepSeed
@@ -66,6 +67,22 @@ spec =
             Just  k2 = decodeStrict' a2jwk
         fst (decode blinderRNG [k2, k1] (Just $ JweEncoding RSA_OAEP A256GCM) a1) @?= (Right $ Jwe (a1Header, a1Payload))
 
+      it "a truncated CEK returns BadSignature" $ do
+        let [hdr, _, iv, payload, tag] = BC.split '.' a1
+            (newEk, _) = rsaEncrypt blinderRNG RSA_OAEP a1PubKey (B.tail a1cek)
+        fst (Jwe.rsaDecode blinderRNG a1PrivKey (B.intercalate "." [hdr, B64.encode newEk, iv, payload, tag])) @?= Left BadSignature
+
+      it "a truncated payload returns BadSignature" $ do
+        let [hdr, ek, iv, payload, tag] = BC.split '.' a1
+            Right ct = B64.decode payload
+        fst (Jwe.rsaDecode blinderRNG a1PrivKey (B.intercalate "." [hdr, ek, iv, B64.encode (B.tail ct), tag])) @?= Left BadSignature
+
+      it "a truncated IV returns BadSignature" $ do
+        let (fore, aft) = BC.breakSubstring (B64.encode a1iv) a1
+            newIv = B64.encode (B.tail a1iv)
+        fst (Jwe.rsaDecode blinderRNG a1PrivKey (B.concat [fore, newIv, aft])) @?= Left BadSignature
+
+
     context "when using JWE Appendix 2 data" $ do
       let a2Header = defJweHdr {jweAlg = RSA1_5, jweEnc = A128CBC_HS256}
       let aad = B64.encode . encodeHeader $ a2Header
@@ -86,6 +103,21 @@ spec =
 
       it "decodes the JWT to the expected header and payload" $
         fst (Jwe.rsaDecode blinderRNG a2PrivKey a2) @?= Right (a2Header, a2Payload)
+
+      it "a truncated CEK returns BadCrypto" $ do
+        let [hdr, _, iv, payload, tag] = BC.split '.' a2
+            (newEk, _) = rsaEncrypt blinderRNG RSA1_5 a2PubKey (B.tail a2cek)
+        fst (Jwe.rsaDecode blinderRNG a2PrivKey (B.intercalate "." [hdr, B64.encode newEk, iv, payload, tag])) @?= Left BadCrypto
+
+      it "a truncated payload returns BadCrypto" $ do
+        let [hdr, ek, iv, payload, tag] = BC.split '.' a2
+            Right ct = B64.decode payload
+        fst (Jwe.rsaDecode blinderRNG a2PrivKey (B.intercalate "." [hdr, ek, iv, B64.encode (B.tail ct), tag])) @?= Left BadCrypto
+
+      it "a truncated IV returns BadSignature" $ do
+        let (fore, aft) = BC.breakSubstring (B64.encode a2iv) a2
+            newIv = B64.encode (B.tail a2iv)
+        fst (Jwe.rsaDecode blinderRNG a2PrivKey (B.concat [fore, newIv, aft])) @?= Left BadSignature
 
     context "when used with quickcheck" $ do
       it "padded msg is always a multiple of 16" $ property $

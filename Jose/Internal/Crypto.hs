@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, FlexibleContexts #-}
 {-# OPTIONS_HADDOCK prune #-}
 
 -- | Internal functions for encrypting and signing / decrypting
@@ -22,6 +22,7 @@ where
 
 import           Control.Applicative
 import           Crypto.Cipher.Types (AuthTag(..))
+import           Control.Monad.Error
 import           Crypto.Number.Serialize (os2ip)
 import qualified Crypto.PubKey.ECC.ECDSA as ECDSA
 import qualified Crypto.PubKey.RSA as RSA
@@ -124,8 +125,8 @@ lookupRSAHash alg = case alg of
 generateCmkAndIV :: CPRG g
                  => g   -- ^ The random number generator
                  -> Enc -- ^ The encryption algorithm to be used
-                 -> (B.ByteString, B.ByteString, g) -- ^ The key, IV and generator
-generateCmkAndIV g e = (cmk, iv, g'')
+                 -> ((B.ByteString, B.ByteString), g) -- ^ The key, IV and generator
+generateCmkAndIV g e = ((cmk, iv), g'')
   where
     (cmk, g') = cprgGenerate (keySize e) g
     (iv, g'') = cprgGenerate (ivSize e) g'  -- iv for aes gcm or cbc
@@ -162,7 +163,7 @@ rsaDecrypt :: Maybe RSA.Blinder
            -> RSA.PrivateKey                -- ^ The decryption key
            -> B.ByteString                  -- ^ The encrypted content
            -> Either JwtError B.ByteString  -- ^ The decrypted key
-rsaDecrypt blinder a rsaKey jweKey = either (const $ Left BadCrypto) Right $ decrypt rsaKey jweKey
+rsaDecrypt blinder a rsaKey jweKey = either (const $ throwError BadCrypto) return $ decrypt rsaKey jweKey
   where
     decrypt = case a of
         RSA1_5   -> PKCS15.decrypt blinder
@@ -171,16 +172,15 @@ rsaDecrypt blinder a rsaKey jweKey = either (const $ Left BadCrypto) Right $ dec
 oaepParams :: OAEP.OAEPParams
 oaepParams = OAEP.defaultOAEPParams (hashFunction hashDescrSHA1)
 
--- TODO: Need to check key length and IV are is valid for enc.
-
 -- | Decrypt an AES encrypted message.
-decryptPayload :: Enc        -- ^ Encryption algorithm
+decryptPayload :: MonadError JwtError m
+               => Enc        -- ^ Encryption algorithm
                -> ByteString -- ^ Content management key
                -> ByteString -- ^ IV
                -> ByteString -- ^ Additional authentication data
                -> ByteString -- ^ The integrity protection value to be checked
                -> ByteString -- ^ The encrypted JWT payload
-               -> Either JwtError ByteString
+               -> m ByteString
 decryptPayload e cek iv aad sig ct = do
     (plaintext, tag) <- case e of
         A128GCM        -> decryptedGCM
@@ -189,11 +189,12 @@ decryptPayload e cek iv aad sig ct = do
         A256CBC_HS512  -> decryptedCBC 32 hashDescrSHA512
     if tag == AuthTag sig
       then return plaintext
-      else Left BadSignature
+      else throwError BadSignature
   where
-    decryptedGCM = Right $ AES.decryptGCM (AES.initAES cek) iv aad ct
+    decryptedGCM = return $ AES.decryptGCM (AES.initAES cek) iv aad ct
 
     decryptedCBC l h = do
+      unless (B.length ct `mod` 16 == 0) $ throwError BadCrypto
       let (macKey, encKey) = B.splitAt (B.length cek `div` 2) cek
       let al = fromIntegral (B.length aad) * 8 :: Word64
       plaintext <- unpad $ AES.decryptCBC (AES.initAES encKey) iv ct
@@ -222,11 +223,11 @@ encryptPayload e cek iv aad msg = case e of
 authTag :: Int -> HashDescr -> ByteString -> ByteString -> AuthTag
 authTag l h k m = AuthTag $ B.take l $ hmac (hashFunction h) 64 k m
 
-unpad :: ByteString -> Either JwtError ByteString
+unpad :: MonadError JwtError m => ByteString -> m ByteString
 unpad bs
-    | padLen > 16 || padLen /= B.length padding = Left BadCrypto
-    | B.any (/= padByte) padding = Left BadCrypto
-    | otherwise = Right pt
+    | padLen > 16 || padLen /= B.length padding = throwError BadCrypto
+    | B.any (/= padByte) padding = throwError BadCrypto
+    | otherwise = return pt
   where
     len     = B.length bs
     padByte = B.last bs
