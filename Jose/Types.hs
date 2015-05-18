@@ -14,7 +14,7 @@ module Jose.Types
     , JwtError (..)
     , IntDate (..)
     , Payload (..)
-    , KeyId
+    , KeyId (..)
     , parseHeader
     , encodeHeader
     , defJwsHdr
@@ -30,12 +30,15 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.HashMap.Strict as H
 import Data.Int (Int64)
+import Data.Time.Clock (UTCTime)
 import Data.Time.Clock.POSIX
+import Data.Time.Format
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Vector (singleton)
 import GHC.Generics
+import System.Locale (defaultTimeLocale)
 
 import Jose.Jwa (JweAlg(..), JwsAlg (..), Enc(..))
 
@@ -69,8 +72,22 @@ data JwtHeader = JweH JweHeader
                | UnsecuredH
                  deriving (Show)
 
-type KeyId   = Text
+data KeyId
+    = KeyId    Text
+    | UTCKeyId UTCTime
+      deriving (Eq, Show, Ord)
 
+instance ToJSON KeyId
+  where
+    toJSON (KeyId t)    = toJSON t
+    toJSON (UTCKeyId t) = toJSON t
+
+instance FromJSON KeyId
+  where
+    parseJSON = withText "KeyId" $ \t ->
+        case parseTime defaultTimeLocale "%FT%T%QZ" (T.unpack t) of
+            Just d -> pure (UTCKeyId d)
+            _      -> pure (KeyId t)
 
 -- | Header content for a JWS.
 data JwsHeader = JwsHeader {

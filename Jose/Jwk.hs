@@ -7,14 +7,20 @@ module Jose.Jwk
     , KeyId
     , Jwk (..)
     , JwkSet (..)
+    , isPublic
+    , isPrivate
+    , jwkId
+    , jwkUse
     , canDecodeJws
     , canDecodeJwe
     , canEncodeJws
     , canEncodeJwe
+    , generateRsaKeyPair
     )
 where
 
 import           Control.Applicative (pure)
+import           Crypto.Random (CPRG)
 import qualified Crypto.PubKey.RSA as RSA
 import qualified Crypto.PubKey.ECC.ECDSA as ECDSA
 import qualified Crypto.Types.PubKey.ECC as ECC
@@ -54,6 +60,27 @@ data Jwk = RsaPublicJwk  RSA.PublicKey (Maybe KeyId) (Maybe KeyUse) (Maybe Alg)
 data JwkSet = JwkSet
     { keys :: [Jwk]
     } deriving (Show, Eq, Generic)
+
+generateRsaKeyPair :: (CPRG g)
+    => g
+    -> Int
+    -> KeyId
+    -> KeyUse
+    -> Maybe Alg
+    -> ((Jwk, Jwk), g)
+generateRsaKeyPair rng nBytes id' kuse kalg =
+    let ((kPub, kPr), rng') = RSA.generate rng nBytes 65537
+    in  ((RsaPublicJwk kPub (Just id') (Just kuse) kalg, RsaPrivateJwk kPr (Just id') (Just kuse) kalg), rng')
+
+isPublic :: Jwk -> Bool
+isPublic RsaPublicJwk {} = True
+isPublic EcPublicJwk  {} = True
+isPublic _ = False
+
+isPrivate :: Jwk -> Bool
+isPrivate RsaPrivateJwk {} = True
+isPrivate EcPrivateJwk  {} = True
+isPrivate _ = False
 
 canDecodeJws :: JwsHeader -> Jwk -> Bool
 canDecodeJws hdr jwk = jwkUse jwk /= Just Enc &&
@@ -292,7 +319,7 @@ data JwkData = J
     , y   :: Maybe JwkBytes
     , use :: Maybe KeyUse
     , alg :: Maybe Alg
-    , kid :: Maybe Text
+    , kid :: Maybe KeyId
     , x5u :: Maybe Text
     , x5c :: Maybe [Text]
     , x5t :: Maybe Text

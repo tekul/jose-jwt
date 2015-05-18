@@ -1,3 +1,9 @@
+0.6
+---
+
+* Change KeyId type to allow use of a UTCTime string for the identifier.
+* Internal crypto fixes to prevent exceptions from external libraries.
+
 0.5
 ---
 
