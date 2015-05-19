@@ -17,7 +17,7 @@
 -- >>> let (Right (Jwt jwtEncoded), g')  = encode g [jwk] (JwsEncoding RS256) (Claims "public claims")
 -- >>> let (Right jwtDecoded, g'') = Jose.Jwt.decode g' [jwk] (Just (JwsEncoding RS256)) jwtEncoded
 -- >>> jwtDecoded
--- Jws (JwsHeader {jwsAlg = RS256, jwsTyp = Nothing, jwsCty = Nothing, jwsKid = Just "mykey"},"public claims")
+-- Jws (JwsHeader {jwsAlg = RS256, jwsTyp = Nothing, jwsCty = Nothing, jwsKid = Just (KeyId "mykey")},"public claims")
 
 module Jose.Jwt
     ( module Jose.Types
