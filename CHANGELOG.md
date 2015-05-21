@@ -1,3 +1,8 @@
+0.6.1
+-----
+
+* Minor internal changes to fix build on GHC 7.10.
+
 0.6
 ---
 
