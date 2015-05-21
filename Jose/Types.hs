@@ -32,13 +32,11 @@ import qualified Data.HashMap.Strict as H
 import Data.Int (Int64)
 import Data.Time.Clock (UTCTime)
 import Data.Time.Clock.POSIX
-import Data.Time.Format
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Vector (singleton)
 import GHC.Generics
-import System.Locale (defaultTimeLocale)
 
 import Jose.Jwa (JweAlg(..), JwsAlg (..), Enc(..))
 
@@ -84,10 +82,11 @@ instance ToJSON KeyId
 
 instance FromJSON KeyId
   where
-    parseJSON = withText "KeyId" $ \t ->
-        case parseTime defaultTimeLocale "%FT%T%QZ" (T.unpack t) of
-            Just d -> pure (UTCKeyId d)
-            _      -> pure (KeyId t)
+    parseJSON = withText "KeyId" $ \t -> do
+        let asTime = fromJSON (String t) :: Result UTCTime
+        case asTime of
+            Success d -> pure (UTCKeyId d)
+            _         -> pure (KeyId t)
 
 -- | Header content for a JWS.
 data JwsHeader = JwsHeader {
