@@ -1,3 +1,8 @@
+0.6.2
+-----
+
+* Remove dependency on `errors` package.
+
 0.6.1
 -----
 
