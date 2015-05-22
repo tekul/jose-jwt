@@ -27,15 +27,15 @@ module Jose.Jwt
     )
 where
 
-import Control.Error
 import Control.Monad.State.Strict
+import Control.Monad.Trans.Either
 import qualified Crypto.PubKey.ECC.ECDSA as ECDSA
 import Crypto.PubKey.RSA (PrivateKey(..))
 import Crypto.Random (CPRG)
 import Data.Aeson (decodeStrict')
 import Data.ByteString (ByteString)
 import Data.List (find)
-import Data.Maybe (fromJust)
+import Data.Maybe (fromJust, isJust, isNothing)
 import qualified Data.ByteString.Char8 as BC
 
 import qualified Jose.Internal.Base64 as B64

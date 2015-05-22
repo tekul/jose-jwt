@@ -23,7 +23,7 @@ where
 
 import Control.Arrow (first)
 import Crypto.Cipher.Types (AuthTag(..))
-import Control.Error
+import Control.Monad.Trans.Either
 import Crypto.PubKey.RSA (PrivateKey(..), PublicKey(..), generateBlinder, private_pub)
 import Control.Monad.State.Strict
 import Crypto.Random.API (CPRG)
