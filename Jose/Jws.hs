@@ -28,7 +28,7 @@ import Control.Applicative
 import Control.Monad (unless)
 import qualified Crypto.PubKey.ECC.ECDSA as ECDSA
 import Crypto.PubKey.RSA (PrivateKey(..), PublicKey(..), generateBlinder)
-import Crypto.Random (CPRG)
+import Crypto.Random (MonadRandom)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as BC
@@ -42,16 +42,15 @@ import Jose.Jwk (Jwk (..))
 -- | Create a JWS signed with a JWK.
 -- The key and algorithm must be consistent or an error
 -- will be returned.
-jwkEncode :: (CPRG g)
-          => g
-          -> JwsAlg                          -- ^ The algorithm to use
+jwkEncode :: MonadRandom m
+          => JwsAlg                          -- ^ The algorithm to use
           -> Jwk                             -- ^ The key to sign with
           -> Payload                         -- ^ The public JWT claims
-          -> (Either JwtError Jwt, g)        -- ^ The encoded token, if successful
-jwkEncode rng a key payload = case key of
-    RsaPrivateJwk kPr kid _ _ -> rsaEncodeInternal rng a kPr (sigTarget a kid payload)
-    SymmetricJwk  k   kid _ _ -> (hmacEncodeInternal a k (sigTarget a kid payload), rng)
-    _                         -> (Left $ BadAlgorithm "EC signing is not supported", rng)
+          -> m (Either JwtError Jwt)         -- ^ The encoded token, if successful
+jwkEncode a key payload = case key of
+    RsaPrivateJwk kPr kid _ _ -> rsaEncodeInternal a kPr (sigTarget a kid payload)
+    SymmetricJwk  k   kid _ _ -> return $ hmacEncodeInternal a k (sigTarget a kid payload)
+    _                         -> return $ Left $ BadAlgorithm "EC signing is not supported"
 
 -- | Create a JWS with an HMAC for validation.
 hmacEncode :: JwsAlg       -- ^ The MAC algorithm to use
@@ -73,24 +72,22 @@ hmacDecode :: ByteString          -- ^ The HMAC key
 hmacDecode key = decode (`hmacVerify` key)
 
 -- | Creates a JWS with an RSA signature.
-rsaEncode :: CPRG g
-          => g
-          -> JwsAlg                           -- ^ The RSA algorithm to use
+rsaEncode :: MonadRandom m
+          => JwsAlg                           -- ^ The RSA algorithm to use
           -> PrivateKey                       -- ^ The key to sign with
           -> ByteString                       -- ^ The public JWT claims (token content)
-          -> (Either JwtError Jwt, g)  -- ^ The encoded JWS token
-rsaEncode rng a pk payload = rsaEncodeInternal rng a pk (sigTarget a Nothing (Claims payload))
+          -> m (Either JwtError Jwt)          -- ^ The encoded JWS token
+rsaEncode a pk payload = rsaEncodeInternal a pk (sigTarget a Nothing (Claims payload))
 
-rsaEncodeInternal :: CPRG g
-                  => g
-                  -> JwsAlg
+rsaEncodeInternal :: MonadRandom m
+                  => JwsAlg
                   -> PrivateKey
                   -> ByteString
-                  -> (Either JwtError Jwt, g)
-rsaEncodeInternal rng a pk st = (sign blinder, rng')
+                  -> m (Either JwtError Jwt)
+rsaEncodeInternal a pk st = do
+    blinder <- generateBlinder (public_n $ private_pub pk)
+    return $ sign blinder
   where
-    (blinder, rng') = generateBlinder rng (public_n $ private_pub pk)
-
     sign b = case rsaSign (Just b) a pk st of
         Right sig -> Right . Jwt $ B.concat [st, ".", B64.encode sig]
         Left e    -> Left e
@@ -135,4 +132,3 @@ decode verify jwt = do
   where
     spanEndDot bs = let (toDot, end) = BC.spanEnd (/= '.') bs
                     in  (B.init toDot, end)
-

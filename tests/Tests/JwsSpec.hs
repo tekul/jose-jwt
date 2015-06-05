@@ -7,29 +7,26 @@ import Test.Hspec
 import Test.HUnit hiding (Test)
 
 import Data.Aeson (decodeStrict')
+import qualified Data.ByteArray as BA
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 ()
-import qualified Crypto.Hash.SHA256 as SHA256
-import Crypto.MAC.HMAC (hmac)
+import Data.Word (Word64)
+import Crypto.Hash (SHA256)
+import Crypto.MAC.HMAC (HMAC, hmac)
 import qualified Crypto.PubKey.RSA as RSA
 import qualified Crypto.PubKey.RSA.PKCS15 as RSAPKCS15
 import Crypto.PubKey.HashDescr
-import Crypto.Random (CPRG(..))
+import Crypto.Random (withDRG, drgNewTest)
 
 import Jose.Jwt
 import Jose.Jwa
 import qualified Jose.Internal.Base64 as B64
 import qualified Jose.Jws as Jws
 
--- Test CPRG which just produces a stream of '255' bytes
-data RNG = RNG deriving (Show, Eq)
 
-instance CPRG RNG where
-    cprgCreate              = undefined
-    cprgSetReseedThreshold  = undefined
-    cprgGenerate n g        = (B.replicate n 255, g)
-    cprgGenerateWithEntropy = undefined
-    cprgFork                = undefined
+testRNG = drgNewTest (w, w, w, w, w) where w = 1 :: Word64
+
+fstWithRNG = fst . withDRG testRNG
 
 {-- Examples from the JWS appendix A --}
 
@@ -46,7 +43,7 @@ spec =
 
         it "decodes the payload using the JWK" $ do
           let Just k11 = decodeStrict' a11jwk
-          fst (decode RNG [k11] Nothing a11) @?= fmap Jws a11decoded
+          fstWithRNG (decode [k11] Nothing a11) @?= fmap Jws a11decoded
 
         it "encodes/decodes using HS512" $
           hmacRoundTrip HS512 a11Payload
@@ -60,7 +57,7 @@ spec =
 
         it "decodes the JWT to the expected header and payload with the JWK" $ do
           let Just k21 = decodeStrict' a21jwk
-          fst (decode RNG [k21] (Just (JwsEncoding RS256)) a21) @?= (Right $ Jws (defJwsHdr {jwsAlg = RS256}, a21Payload))
+          fstWithRNG (decode [k21] (Just (JwsEncoding RS256)) a21) @?= (Right $ Jws (defJwsHdr {jwsAlg = RS256}, a21Payload))
 
         it "encodes the payload to the expected JWT" $ do
           let sign = either (error "Sign failed") id . RSAPKCS15.sign Nothing hashDescrSHA256 rsaPrivateKey
@@ -79,25 +76,25 @@ spec =
         let a31decoded = Right (defJwsHdr {jwsAlg = ES256}, a31Payload)
         it "decodes the JWT to the expected header and payload" $ do
           let Just k31 = decodeStrict' a31jwk
-          fst (decode RNG [k31] Nothing a31) @?= fmap Jws a31decoded
+          fstWithRNG (decode [k31] Nothing a31) @?= fmap Jws a31decoded
 
       context "when using an unsecured JWT" $ do
         it "returns an error if alg is unset" $
-          fst (decode RNG [] Nothing jwt61) @?= Left (BadAlgorithm "JWT is unsecured but expected 'alg' was not 'none'")
+          fstWithRNG (decode [] Nothing jwt61) @?= Left (BadAlgorithm "JWT is unsecured but expected 'alg' was not 'none'")
         it "returns an error if alg is is not 'none'" $
-          fst (decode RNG [] (Just (JwsEncoding RS256)) jwt61) @?= Left (BadAlgorithm "JWT is unsecured but expected 'alg' was not 'none'")
+          fstWithRNG (decode [] (Just (JwsEncoding RS256)) jwt61) @?= Left (BadAlgorithm "JWT is unsecured but expected 'alg' was not 'none'")
         it "decodes the JWT to the expected header and payload" $
-          fst (decode RNG [] (Just (JwsEncoding None)) jwt61) @?= Right (Unsecured jwt61Payload)
+          fstWithRNG (decode [] (Just (JwsEncoding None)) jwt61) @?= Right (Unsecured jwt61Payload)
 
 
-signWithHeader sign hdr payload = B.intercalate "." [hdrPayload, B64.encode $ sign hdrPayload]
+signWithHeader sign hdr payload = B.intercalate "." [hdrPayload, B64.encode $ BA.convert $ sign hdrPayload]
   where
     hdrPayload = B.intercalate "." $ map B64.encode [hdr, payload]
 
 hmacRoundTrip a msg = let Right (Jwt encoded) = Jws.hmacEncode a "asecretkey" msg
                      in  Jws.hmacDecode "asecretkey" encoded @?= Right (defJwsHdr {jwsAlg = a}, msg)
 
-rsaRoundTrip a msg = let Right (Jwt encoded) = fst $ Jws.rsaEncode RNG a rsaPrivateKey msg
+rsaRoundTrip a msg = let Right (Jwt encoded) = fstWithRNG (Jws.rsaEncode a rsaPrivateKey msg)
                      in  Jws.rsaDecode rsaPublicKey encoded @?= Right (defJwsHdr {jwsAlg = a}, msg)
 
 -- Unsecured JWT from section 6.1
@@ -155,4 +152,5 @@ rsaPublicKey = RSA.PublicKey
     , RSA.public_e = rsaExponent
     }
 
-a11mac = hmac SHA256.hash 64 hmacKey
+a11mac :: B.ByteString -> HMAC SHA256
+a11mac = hmac hmacKey

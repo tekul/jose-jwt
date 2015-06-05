@@ -6,8 +6,9 @@ module Tests.JweSpec where
 import Control.Applicative
 import Data.Aeson (eitherDecode, decodeStrict')
 import Data.Bits (xor)
-import Data.Either.Combinators
-import Data.Word (Word8)
+import Data.Maybe (fromJust)
+import Data.Word (Word8, Word64)
+import qualified Data.ByteArray as BA
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as BC
 import Test.Hspec
@@ -15,11 +16,11 @@ import Test.HUnit hiding (Test)
 import Test.QuickCheck
 
 import qualified Crypto.PubKey.RSA as RSA
+import Crypto.Hash (SHA1(..), hashDigestSize)
 import Crypto.PubKey.RSA.Prim (dp)
 import Crypto.PubKey.MaskGenFunction
-import Crypto.PubKey.HashDescr
 import Crypto.Cipher.Types (AuthTag(..))
-import Crypto.Random (CPRG(..))
+import Crypto.Random (DRG(..), withDRG, drgNewTest)
 import Jose.Jwt
 import qualified Jose.Jwe as Jwe
 import Jose.Jwa
@@ -37,24 +38,24 @@ spec =
     context "when using JWE Appendix 1 data" $ do
       let a1Header = defJweHdr {jweAlg = RSA_OAEP, jweEnc = A256GCM}
 
-      it "generates the expected IV and CMK from the RNG" $ do
-        let g = RNG $ B.append a1cek a1iv
-        generateCmkAndIV g A256GCM @?= ((a1cek, a1iv), RNG "")
+      it "generates the expected IV and CMK from the RNG" $
+        withDRG (RNG $ B.append a1cek a1iv)
+            (generateCmkAndIV A256GCM) @?= ((a1cek, a1iv), RNG "")
 
-      it "generates the expected RSA-encrypted content key" $ do
-        let g = RNG a1oaepSeed
-        rsaEncrypt g RSA_OAEP a1PubKey a1cek @?= (a1jweKey, RNG "")
+      it "generates the expected RSA-encrypted content key" $
+        withDRG (RNG a1oaepSeed)
+            (rsaEncrypt RSA_OAEP a1PubKey a1cek) @?= (a1jweKey, RNG "")
 
       it "encrypts the payload to the expected ciphertext and authentication tag" $ do
         let aad = B64.encode . encodeHeader $ a1Header
-        encryptPayload A256GCM a1cek a1iv aad a1Payload @?= (a1Ciphertext, AuthTag a1Tag)
+        encryptPayload A256GCM a1cek a1iv aad a1Payload @?= Just (AuthTag a1Tag, a1Ciphertext)
 
-      it "encodes the payload to the expected JWT, leaving the RNG empty" $ do
-        let g = RNG $ B.concat [a1cek, a1iv, a1oaepSeed]
-        Jwe.rsaEncode g RSA_OAEP A256GCM a1PubKey a1Payload @?= (Jwt a1, RNG "")
+      it "encodes the payload to the expected JWT, leaving the RNG empty" $
+        withDRG (RNG $ B.concat [a1cek, a1iv, a1oaepSeed])
+            (Jwe.rsaEncode RSA_OAEP A256GCM a1PubKey a1Payload) @?= (Jwt a1, RNG "")
 
       it "decodes the JWT to the expected header and payload" $
-        fst (Jwe.rsaDecode blinderRNG a1PrivKey a1) @?= Right (a1Header, a1Payload)
+        withBlinder (Jwe.rsaDecode a1PrivKey a1) @?= Right (a1Header, a1Payload)
 
       it "decodes the JWK to the correct RSA key values" $ do
         let Right (Jwk.RsaPrivateJwk (RSA.PrivateKey pubKey d 0 0 0 0 0) _ _ _) = eitherDecode a1jwk
@@ -65,65 +66,64 @@ spec =
       it "decodes the JWT using the JWK" $ do
         let Right k1 = eitherDecode a1jwk
             Just  k2 = decodeStrict' a2jwk
-        fst (decode blinderRNG [k2, k1] (Just $ JweEncoding RSA_OAEP A256GCM) a1) @?= (Right $ Jwe (a1Header, a1Payload))
+        withBlinder (decode [k2, k1] (Just $ JweEncoding RSA_OAEP A256GCM) a1) @?= (Right $ Jwe (a1Header, a1Payload))
 
-      it "a truncated CEK returns BadSignature" $ do
+      it "a truncated CEK returns BadCrypto" $ do
         let [hdr, _, iv, payload, tag] = BC.split '.' a1
-            (newEk, _) = rsaEncrypt blinderRNG RSA_OAEP a1PubKey (B.tail a1cek)
-        fst (Jwe.rsaDecode blinderRNG a1PrivKey (B.intercalate "." [hdr, B64.encode newEk, iv, payload, tag])) @?= Left BadSignature
+            (newEk, _) = withDRG blinderRNG (rsaEncrypt RSA_OAEP a1PubKey (B.tail a1cek))
+        withBlinder (Jwe.rsaDecode a1PrivKey (B.intercalate "." [hdr, B64.encode newEk, iv, payload, tag])) @?= Left BadCrypto
 
-      it "a truncated payload returns BadSignature" $ do
+      it "a truncated payload returns BadCrypto" $ do
         let [hdr, ek, iv, payload, tag] = BC.split '.' a1
             Right ct = B64.decode payload
-        fst (Jwe.rsaDecode blinderRNG a1PrivKey (B.intercalate "." [hdr, ek, iv, B64.encode (B.tail ct), tag])) @?= Left BadSignature
+        withBlinder (Jwe.rsaDecode a1PrivKey (B.intercalate "." [hdr, ek, iv, B64.encode (B.tail ct), tag])) @?= Left BadCrypto
 
-      it "a truncated IV returns BadSignature" $ do
+      it "a truncated IV returns BadCrypto" $ do
         let (fore, aft) = BC.breakSubstring (B64.encode a1iv) a1
             newIv = B64.encode (B.tail a1iv)
-        fst (Jwe.rsaDecode blinderRNG a1PrivKey (B.concat [fore, newIv, aft])) @?= Left BadSignature
+        withBlinder (Jwe.rsaDecode a1PrivKey (B.concat [fore, newIv, aft])) @?= Left BadCrypto
 
 
     context "when using JWE Appendix 2 data" $ do
       let a2Header = defJweHdr {jweAlg = RSA1_5, jweEnc = A128CBC_HS256}
       let aad = B64.encode . encodeHeader $ a2Header
 
-      it "generates the expected RSA-encrypted content key" $ do
-        let g = RNG a2seed
-        rsaEncrypt g RSA1_5 a2PubKey a2cek @?= (a2jweKey, RNG "")
+      it "generates the expected RSA-encrypted content key" $
+        withDRG (RNG a2seed) (rsaEncrypt RSA1_5 a2PubKey a2cek) @?= (a2jweKey, RNG "")
 
       it "encrypts the payload to the expected ciphertext and authentication tag" $
-        encryptPayload A128CBC_HS256 a2cek a2iv aad a2Payload @?= (a2Ciphertext, AuthTag a2Tag)
+        encryptPayload A128CBC_HS256 a2cek a2iv aad a2Payload @?= Just (a2Tag, a2Ciphertext)
 
-      it "encodes the payload to the expected JWT" $ do
-        let g = RNG $ B.concat [a2cek, a2iv, a2seed]
-        Jwe.rsaEncode g RSA1_5 A128CBC_HS256 a2PubKey a2Payload @?= (Jwt a2, RNG "")
+      it "encodes the payload to the expected JWT" $
+        withDRG (RNG $ B.concat [a2cek, a2iv, a2seed])
+            (Jwe.rsaEncode RSA1_5 A128CBC_HS256 a2PubKey a2Payload) @?= (Jwt a2, RNG "")
 
       it "decrypts the ciphertext to the correct payload" $
-        decryptPayload A128CBC_HS256 a2cek a2iv aad a2Tag a2Ciphertext @?= Right a2Payload
+        decryptPayload A128CBC_HS256 a2cek a2iv aad a2Tag a2Ciphertext @?= Just a2Payload
 
       it "decodes the JWT to the expected header and payload" $
-        fst (Jwe.rsaDecode blinderRNG a2PrivKey a2) @?= Right (a2Header, a2Payload)
+        withBlinder (Jwe.rsaDecode a2PrivKey a2) @?= Right (a2Header, a2Payload)
 
       it "a truncated CEK returns BadCrypto" $ do
         let [hdr, _, iv, payload, tag] = BC.split '.' a2
-            (newEk, _) = rsaEncrypt blinderRNG RSA1_5 a2PubKey (B.tail a2cek)
-        fst (Jwe.rsaDecode blinderRNG a2PrivKey (B.intercalate "." [hdr, B64.encode newEk, iv, payload, tag])) @?= Left BadCrypto
+            (newEk, _) = withDRG blinderRNG $ rsaEncrypt RSA1_5 a2PubKey (B.tail a2cek)
+        withBlinder (Jwe.rsaDecode a2PrivKey (B.intercalate "." [hdr, B64.encode newEk, iv, payload, tag])) @?= Left BadCrypto
 
       it "a truncated payload returns BadCrypto" $ do
         let [hdr, ek, iv, payload, tag] = BC.split '.' a2
             Right ct = B64.decode payload
-        fst (Jwe.rsaDecode blinderRNG a2PrivKey (B.intercalate "." [hdr, ek, iv, B64.encode (B.tail ct), tag])) @?= Left BadCrypto
+        withBlinder (Jwe.rsaDecode a2PrivKey (B.intercalate "." [hdr, ek, iv, B64.encode (B.tail ct), tag])) @?= Left BadCrypto
 
-      it "a truncated IV returns BadSignature" $ do
+      it "a truncated IV returns BadCrypto" $ do
         let (fore, aft) = BC.breakSubstring (B64.encode a2iv) a2
             newIv = B64.encode (B.tail a2iv)
-        fst (Jwe.rsaDecode blinderRNG a2PrivKey (B.concat [fore, newIv, aft])) @?= Left BadSignature
+        withBlinder (Jwe.rsaDecode a2PrivKey (B.concat [fore, newIv, aft])) @?= Left BadCrypto
 
     context "when used with quickcheck" $ do
       it "padded msg is always a multiple of 16" $ property $
         \s -> B.length (pad (B.pack s)) `mod` 16 == 0
       it "unpad is the inverse of pad" $ property $
-        \s -> let msg = B.pack s in (fromRight' . unpad . pad) msg == msg
+        \s -> let msg = B.pack s in (fromJust . unpad . pad) msg == msg
       it "jwe decode/decode returns the original payload" $ property jweRoundTrip
 
 -- verboseQuickCheckWith quickCheckWith stdArgs {maxSuccess=10000}  jweRoundTrip
@@ -131,28 +131,27 @@ jweRoundTrip :: RNG -> JWEAlgs -> [Word8] -> Bool
 jweRoundTrip g (JWEAlgs a e) msg = encodeDecode == Right (defJweHdr {jweAlg = a, jweEnc = e}, bs)
   where
     bs = B.pack msg
-    encodeDecode = fst $ Jwe.rsaDecode blinderRNG a2PrivKey $ unJwt $ fst $ Jwe.rsaEncode g a e a2PubKey bs
+    encodeDecode = fst (withDRG blinderRNG (Jwe.rsaDecode a2PrivKey encoded))
+    encoded = unJwt $ fst (withDRG g (Jwe.rsaEncode a e a2PubKey bs))
+
+withBlinder = fst . withDRG blinderRNG
 
 -- A decidedly non-random, random number generator which allows specific
 -- sequences of bytes to be supplied which match the JWE test data.
 data RNG = RNG B.ByteString deriving (Eq, Show)
 
-genBytes :: Int -> RNG -> (B.ByteString, RNG)
-genBytes 0 g = (B.empty, g)
-genBytes n (RNG bs) = (bytes, RNG next)
+genBytes :: BA.ByteArray ba => Int -> RNG -> (ba, RNG)
+genBytes 0 g = (BA.empty, g)
+genBytes n (RNG bs) = (BA.convert bytes, RNG next)
   where
-    (bytes, next) = if B.null bs
-                      then error "RNG is empty"
-                      else B.splitAt n bs
+    (bytes, next) = if BA.null bs
+                        then error "RNG is empty"
+                        else BA.splitAt n bs
 
-instance CPRG RNG where
-    cprgCreate   = undefined
-    cprgSetReseedThreshold = undefined
-    cprgGenerate = genBytes
-    cprgGenerateWithEntropy = undefined
-    cprgFork = undefined
+instance DRG RNG where
+    randomBytesGenerate = genBytes
 
-blinderRNG = RNG $ B.replicate 2000 255
+blinderRNG = drgNewTest (w, w, w, w, w) where w = 1 :: Word64
 
 --------------------------------------------------------------------------------
 -- JWE Appendix 1 Test Data
@@ -171,7 +170,7 @@ a1aad = B.pack [101, 121, 74, 104, 98, 71, 99, 105, 79, 105, 74, 83, 85, 48, 69,
 
 a1Ciphertext = B.pack [229, 236, 166, 241, 53, 191, 115, 196, 174, 43, 73, 109, 39, 122, 233, 96, 140, 206, 120, 52, 51, 237, 48, 11, 190, 219, 186, 80, 111, 104, 50, 142, 47, 167, 59, 61, 181, 127, 196, 21, 40, 82, 242, 32, 123, 143, 168, 226, 73, 216, 176, 144, 138, 247, 106, 60, 16, 205, 160, 109, 64, 63, 192]
 
-a1Tag = B.pack [92, 80, 104, 49, 133, 25, 161, 215, 173, 101, 219, 211, 136, 91, 210, 145]
+a1Tag = BA.pack [92, 80, 104, 49, 133, 25, 161, 215, 173, 101, 219, 211, 136, 91, 210, 145]
 
 Right a1jweKey = B64.decode "OKOawDo13gRp2ojaHV7LFpZcgV7T6DVZKTyKOMTYUmKoTCVJRgckCL9kiMT03JGeipsEdY3mx_etLbbWSrFr05kLzcSr4qKAq7YN7e9jwQRb23nfa6c9d-StnImGyFDbSv04uVuxIp5Zms1gNxKKK2Da14B8S4rzVRltdYwam_lDp5XnZAYpQdb76FdIKLaVmqgfwX7XWRxv2322i-vDxRfqNzo_tETKzpVLzfiwQyeyPGLBIO56YJ7eObdv0je81860ppamavo35UgoRdbYaBcoh9QcfylQr66oc6vFWXRcZ_ZT2LawVCWTIy3brGPi6UklfCpIMfIjf7iGdXKHzg"
 
@@ -204,7 +203,7 @@ a2iv = B.pack [3, 22, 60, 12, 43, 67, 104, 105, 108, 108, 105, 99, 111, 116, 104
 
 a2Ciphertext = B.pack [40, 57, 83, 181, 119, 33, 133, 148, 198, 185, 243, 24, 152, 230, 6, 75, 129, 223, 127, 19, 210, 82, 183, 230, 168, 33, 215, 104, 143, 112, 56, 102]
 
-a2Tag = B.pack [246, 17, 244, 190, 4, 95, 98, 3, 231, 0, 115, 157, 242, 203, 100, 191]
+a2Tag = AuthTag $ BA.pack [246, 17, 244, 190, 4, 95, 98, 3, 231, 0, 115, 157, 242, 203, 100, 191]
 
 Right a2jweKey = B64.decode "UGhIOguC7IuEvf_NPVaXsGMoLOmwvc1GyqlIKOK1nN94nHPoltGRhWhw7Zx0-kFm1NJn8LE9XShH59_i8J0PH5ZZyNfGy2xGdULU7sHNF6Gp2vPLgNZ__deLKxGHZ7PcHALUzoOegEI-8E66jX2E4zyJKx-YxzZIItRzC5hlRirb6Y5Cl_p-ko3YvkkysZIFNPccxRU7qve1WYPxqbb2Yw8kZqa2rMWI5ng8OtvzlV7elprCbuPhcCdZ6XDP0_F8rkXds2vE4X-ncOIM8hAYHHi29NX0mcKiRaD0-D-ljQTP-cFPgwCp6X-nZZd9OHBv-B3oWh2TbqmScqXMR4gp_A"
 
@@ -242,7 +241,6 @@ instance Arbitrary RNG where
   arbitrary = (RNG . B.pack) <$> vector 600
 
 
-
 --------------------------------------------------------------------------------
 -- Utility Functions
 --------------------------------------------------------------------------------
@@ -270,11 +268,10 @@ extractOaepSeed :: RSA.PrivateKey -> B.ByteString -> B.ByteString
 extractOaepSeed key ct = B.pack $ B.zipWith xor maskedSeed seedMask
   where
     em       = dp Nothing key ct
-    sha1     = hashFunction hashDescrSHA1
-    hashLen  = B.length $ sha1 B.empty
+    hashLen  = hashDigestSize SHA1
     em0      = B.tail em
     (maskedSeed, maskedDB) = B.splitAt hashLen em0
-    seedMask = mgf1 sha1 maskedDB hashLen
+    seedMask = mgf1 SHA1 maskedDB hashLen
 
  -- Decrypt, drop the 02 at the start and take the bytes up to the next 0
 extractPKCS15Seed :: RSA.PrivateKey -> B.ByteString -> B.ByteString

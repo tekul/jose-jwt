@@ -20,10 +20,10 @@ module Jose.Jwk
 where
 
 import           Control.Applicative (pure)
-import           Crypto.Random (CPRG)
+import           Crypto.Random (MonadRandom)
 import qualified Crypto.PubKey.RSA as RSA
 import qualified Crypto.PubKey.ECC.ECDSA as ECDSA
-import qualified Crypto.Types.PubKey.ECC as ECC
+import qualified Crypto.PubKey.ECC.Types as ECC
 import           Crypto.Number.Serialize
 import           Data.Aeson (genericToJSON, Value(..), FromJSON(..), ToJSON(..), withText)
 import           Data.Aeson.Types (Parser, Options (..), defaultOptions)
@@ -61,16 +61,15 @@ data JwkSet = JwkSet
     { keys :: [Jwk]
     } deriving (Show, Eq, Generic)
 
-generateRsaKeyPair :: (CPRG g)
-    => g
-    -> Int
+generateRsaKeyPair :: (MonadRandom m)
+    => Int
     -> KeyId
     -> KeyUse
     -> Maybe Alg
-    -> ((Jwk, Jwk), g)
-generateRsaKeyPair rng nBytes id' kuse kalg =
-    let ((kPub, kPr), rng') = RSA.generate rng nBytes 65537
-    in  ((RsaPublicJwk kPub (Just id') (Just kuse) kalg, RsaPrivateJwk kPr (Just id') (Just kuse) kalg), rng')
+    -> m (Jwk, Jwk)
+generateRsaKeyPair nBytes id' kuse kalg = do
+    (kPub, kPr) <- RSA.generate nBytes 65537
+    return (RsaPublicJwk kPub (Just id') (Just kuse) kalg, RsaPrivateJwk kPr (Just id') (Just kuse) kalg)
 
 isPublic :: Jwk -> Bool
 isPublic RsaPublicJwk {} = True
@@ -372,4 +371,3 @@ createJwk kd = case kd of
     rsaSize m i    = if (2 ^ (i * 8)) > m then i else rsaSize m (i+1)
     os2mip         = maybe 0 (os2ip . bytes)
     ecPoint xb yb  = ECC.Point (os2ip (bytes xb)) (os2ip (bytes yb))
-

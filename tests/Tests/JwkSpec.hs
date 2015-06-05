@@ -8,8 +8,8 @@ import Test.HUnit hiding (Test)
 import Data.Aeson
 import Data.Aeson.QQ
 import qualified Data.ByteString.Char8 ()
-import Crypto.Types.PubKey.ECDSA
-import Crypto.Types.PubKey.ECC
+import Crypto.PubKey.ECC.ECDSA
+import Crypto.PubKey.ECC.Types
 
 import Jose.Jwt (defJwsHdr, JwsHeader(..), KeyId(..))
 import Jose.Jwk

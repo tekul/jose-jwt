@@ -20,19 +20,20 @@ module Jose.Internal.Crypto
     )
 where
 
-import           Control.Applicative
-import           Crypto.Cipher.Types (AuthTag(..))
 import           Control.Monad.Error
+import           Crypto.Error
+import           Crypto.Cipher.AES
+import           Crypto.Cipher.Types
+import           Crypto.Hash.Algorithms
 import           Crypto.Number.Serialize (os2ip)
 import qualified Crypto.PubKey.ECC.ECDSA as ECDSA
 import qualified Crypto.PubKey.RSA as RSA
 import qualified Crypto.PubKey.RSA.PKCS15 as PKCS15
 import qualified Crypto.PubKey.RSA.OAEP as OAEP
-import           Crypto.Random (CPRG, cprgGenerate)
-import qualified Crypto.Cipher.AES as AES
+import           Crypto.Random (MonadRandom, getRandomBytes)
 import           Crypto.PubKey.HashDescr
-import           Crypto.MAC.HMAC (hmac)
-import           Data.Byteable (constEqBytes)
+import           Crypto.MAC.HMAC (HMAC (..), hmac)
+import           Data.ByteArray as BA
 import           Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import qualified Data.Serialize as Serialize
@@ -46,10 +47,12 @@ import           Jose.Types (JwtError(..))
 hmacSign :: JwsAlg      -- ^ HMAC algorithm to use
          -> ByteString  -- ^ Key
          -> ByteString  -- ^ The message/content
-         -> Either JwtError ByteString  -- ^ HMAC output
-hmacSign a k m = do
-    hash <- maybe (Left $ BadAlgorithm $ T.pack $ "Not an HMAC algorithm: " ++ show a) return $ lookup a hmacHashes
-    return $ hmac (hashFunction hash) 64 k m
+         -> Either JwtError ByteString -- ^ HMAC output
+hmacSign a k m = case a of
+    HS256 -> Right $ BA.convert (hmac k m :: HMAC SHA256)
+    HS384 -> Right $ BA.convert (hmac k m :: HMAC SHA384)
+    HS512 -> Right $ BA.convert (hmac k m :: HMAC SHA512)
+    _     -> Left $ BadAlgorithm $ T.pack $ "Not an HMAC algorithm: " ++ show a
 
 -- | Verify the HMAC for a given message.
 -- Returns false if the MAC is incorrect or the 'Alg' is not an HMAC.
@@ -58,7 +61,7 @@ hmacVerify :: JwsAlg      -- ^ HMAC Algorithm to use
            -> ByteString  -- ^ The message/content
            -> ByteString  -- ^ The signature to check
            -> Bool        -- ^ Whether the signature is correct
-hmacVerify a key msg sig = either (const False) (`constEqBytes` sig) $ hmacSign a key msg
+hmacVerify a key msg sig = either (const False) (`BA.constEq` sig) $ hmacSign a key msg
 
 -- | Sign a message using an RSA private key.
 --
@@ -70,10 +73,13 @@ rsaSign :: Maybe RSA.Blinder  -- ^ RSA blinder
         -> RSA.PrivateKey     -- ^ Private key to sign with
         -> ByteString         -- ^ Message to sign
         -> Either JwtError ByteString    -- ^ The signature
-rsaSign blinder a key msg = do
-    hash <- lookupRSAHash a
-    either (const $ Left BadCrypto) Right $ PKCS15.sign blinder hash key msg
+rsaSign blinder a key msg = case a of
+    RS256 -> go hashDescrSHA256
+    RS384 -> go hashDescrSHA384
+    RS512 -> go hashDescrSHA512
+    _     -> Left . BadAlgorithm . T.pack $ "Not an RSA algorithm: " ++ show a
   where
+    go h = either (const $ Left BadCrypto) Right $ PKCS15.sign blinder h key msg
 
 -- | Verify the signature for a message using an RSA public key.
 --
@@ -84,9 +90,13 @@ rsaVerify :: JwsAlg        -- ^ The signature algorithm. Used to obtain the hash
           -> ByteString    -- ^ The message/content
           -> ByteString    -- ^ The signature to check
           -> Bool          -- ^ Whether the signature is correct
-rsaVerify a key msg sig = case lookupRSAHash a of
-    Right hash -> PKCS15.verify hash key msg sig
-    _          -> False
+rsaVerify a key msg sig = case a of
+    RS256 -> go hashDescrSHA256
+    RS384 -> go hashDescrSHA384
+    RS512 -> go hashDescrSHA512
+    _     -> False
+  where
+    go h = PKCS15.verify h key msg sig
 
 -- | Verify the signature for a message using an EC public key.
 --
@@ -97,39 +107,26 @@ ecVerify :: JwsAlg          -- ^ The signature algorithm. Used to obtain the has
          -> ByteString      -- ^ The message/content
          -> ByteString      -- ^ The signature to check
          -> Bool            -- ^ Whether the signature is correct
-ecVerify a key msg sig = case lookupECHash a of
-    Just hash -> let (r, s) = B.splitAt (B.length sig `div` 2) sig
-                 in  ECDSA.verify hash key (ECDSA.Signature (os2ip r) (os2ip s)) msg
-    Nothing   -> False
-
-hmacHashes :: [(JwsAlg, HashDescr)]
-hmacHashes = [(HS256, hashDescrSHA256), (HS384, hashDescrSHA384), (HS512, hashDescrSHA512)]
-
-lookupECHash :: JwsAlg -> Maybe HashFunction
-lookupECHash alg = hashFunction <$> case alg of
-    ES256 -> Just hashDescrSHA256
-    ES384 -> Just hashDescrSHA384
-    ES512 -> Just hashDescrSHA512
-    _     -> Nothing
-
-lookupRSAHash :: JwsAlg -> Either JwtError HashDescr
-lookupRSAHash alg = case alg of
-    RS256 -> Right hashDescrSHA256
-    RS384 -> Right hashDescrSHA384
-    RS512 -> Right hashDescrSHA512
-    _     -> Left . BadAlgorithm . T.pack $ "Not an RSA algorithm: " ++ show alg
+ecVerify a key msg sig = case a of
+    ES256 -> go SHA256
+    ES384 -> go SHA384
+    ES512 -> go SHA512
+    _     -> False
+  where
+    (r, s) = B.splitAt (B.length sig `div` 2) sig
+    ecSig  = ECDSA.Signature (os2ip r) (os2ip s)
+    go h   = ECDSA.verify h key ecSig msg
 
 -- | Generates the symmetric key (content management key) and IV
 --
 -- Used to encrypt a message.
-generateCmkAndIV :: CPRG g
-                 => g   -- ^ The random number generator
-                 -> Enc -- ^ The encryption algorithm to be used
-                 -> ((B.ByteString, B.ByteString), g) -- ^ The key, IV and generator
-generateCmkAndIV g e = ((cmk, iv), g'')
-  where
-    (cmk, g') = cprgGenerate (keySize e) g
-    (iv, g'') = cprgGenerate (ivSize e) g'  -- iv for aes gcm or cbc
+generateCmkAndIV :: MonadRandom m
+                 => Enc -- ^ The encryption algorithm to be used
+                 -> m (B.ByteString, B.ByteString) -- ^ The key, IV and generator
+generateCmkAndIV e = do
+    cmk <- getRandomBytes (keySize e)
+    iv  <- getRandomBytes (ivSize e)   -- iv for aes gcm or cbc
+    return (cmk, iv)
 
 keySize :: Enc -> Int
 keySize A128GCM = 16
@@ -143,19 +140,19 @@ ivSize A256GCM = 12
 ivSize _       = 16
 
 -- | Encrypts a message (typically a symmetric key) using RSA.
-rsaEncrypt :: CPRG g
-           => g                  -- ^ Random number generator
-           -> JweAlg             -- ^ The algorithm (either @RSA1_5@ or @RSA_OAEP@)
+rsaEncrypt :: MonadRandom m
+           => JweAlg             -- ^ The algorithm (either @RSA1_5@ or @RSA_OAEP@)
            -> RSA.PublicKey      -- ^ The encryption key
            -> B.ByteString       -- ^ The message to encrypt
-           -> (B.ByteString, g)  -- ^ The encrypted messaged and new generator
-rsaEncrypt gen a pubKey content = (ct, g')
+           -> m B.ByteString     -- ^ The encrypted message
+rsaEncrypt a pubKey content = do
+-- TODO: Check that we can't cause any errors here with our RSA public key
+    Right ct <- encrypt pubKey content
+    return ct
   where
     encrypt = case a of
-        RSA1_5   -> PKCS15.encrypt gen
-        RSA_OAEP -> OAEP.encrypt gen oaepParams
--- TODO: Check that we can't cause any errors here with our RSA public key
-    (Right ct, g') = encrypt pubKey content
+        RSA1_5   -> PKCS15.encrypt
+        RSA_OAEP -> OAEP.encrypt (OAEP.defaultOAEPParams SHA1)
 
 -- | Decrypts an RSA encrypted message.
 rsaDecrypt :: Maybe RSA.Blinder
@@ -167,39 +164,52 @@ rsaDecrypt blinder a rsaKey jweKey = either (const $ throwError BadCrypto) retur
   where
     decrypt = case a of
         RSA1_5   -> PKCS15.decrypt blinder
-        RSA_OAEP -> OAEP.decrypt blinder oaepParams
+        RSA_OAEP -> OAEP.decrypt blinder (OAEP.defaultOAEPParams SHA1)
 
-oaepParams :: OAEP.OAEPParams
-oaepParams = OAEP.defaultOAEPParams (hashFunction hashDescrSHA1)
+-- Dummy type to constrain Cipher type
+data C c = C
+
+initCipher :: BlockCipher c => C c -> B.ByteString -> Maybe c
+initCipher _ k = maybeCryptoError $ cipherInit k
 
 -- | Decrypt an AES encrypted message.
-decryptPayload :: MonadError JwtError m
-               => Enc        -- ^ Encryption algorithm
+decryptPayload :: Enc        -- ^ Encryption algorithm
                -> ByteString -- ^ Content management key
                -> ByteString -- ^ IV
                -> ByteString -- ^ Additional authentication data
-               -> ByteString -- ^ The integrity protection value to be checked
+               -> AuthTag    -- ^ The integrity protection value to be checked
                -> ByteString -- ^ The encrypted JWT payload
-               -> m ByteString
-decryptPayload e cek iv aad sig ct = do
-    (plaintext, tag) <- case e of
-        A128GCM        -> decryptedGCM
-        A256GCM        -> decryptedGCM
-        A128CBC_HS256  -> decryptedCBC 16 hashDescrSHA256
-        A256CBC_HS512  -> decryptedCBC 32 hashDescrSHA512
-    if tag == AuthTag sig
-      then return plaintext
-      else throwError BadSignature
+               -> Maybe ByteString
+decryptPayload enc cek iv aad sig ct = case enc of
+    A128GCM       -> doGCM (C :: C AES128)
+    A256GCM       -> doGCM (C :: C AES256)
+    A128CBC_HS256 -> doCBC (C :: C AES128) SHA256 16
+    A256CBC_HS512 -> doCBC (C :: C AES256) SHA512 32
   where
-    decryptedGCM = return $ AES.decryptGCM (AES.initAES cek) iv aad ct
+    (cbcMacKey, cbcEncKey) = B.splitAt (B.length cek `div` 2) cek
+    al = fromIntegral (B.length aad) * 8 :: Word64
 
-    decryptedCBC l h = do
-      unless (B.length ct `mod` 16 == 0) $ throwError BadCrypto
-      let (macKey, encKey) = B.splitAt (B.length cek `div` 2) cek
-      let al = fromIntegral (B.length aad) * 8 :: Word64
-      plaintext <- unpad $ AES.decryptCBC (AES.initAES encKey) iv ct
-      let mac = authTag l h macKey $ B.concat [aad, iv, ct, Serialize.encode al]
-      return (plaintext, mac)
+    doGCM :: BlockCipher c => C c -> Maybe ByteString
+    doGCM c = do
+        cipher <- initCipher c cek
+        aead <- maybeCryptoError (aeadInit AEAD_GCM cipher iv)
+        aeadSimpleDecrypt aead aad ct (AuthTag $ BA.convert sig)
+
+    doCBC :: (HashAlgorithm a, BlockCipher c) => C c -> a -> Int -> Maybe ByteString
+    doCBC c a tagLen = do
+        checkMac a tagLen
+        cipher <- initCipher c cbcEncKey
+        iv'    <- makeIV iv
+        unless (B.length ct `mod` blockSize cipher == 0) Nothing
+        unpad $ cbcDecrypt cipher iv' ct
+
+    checkMac :: HashAlgorithm a => a -> Int -> Maybe ()
+    checkMac a l = do
+        let mac = BA.take l $ BA.convert $ doMac a :: Bytes
+        unless (sig `constEq` mac) Nothing
+
+    doMac :: HashAlgorithm a => a -> HMAC a
+    doMac _ = hmac cbcMacKey $ B.concat [aad, iv, ct, Serialize.encode al]
 
 -- | Encrypt a message using AES.
 encryptPayload :: Enc                   -- ^ Encryption algorithm
@@ -207,26 +217,38 @@ encryptPayload :: Enc                   -- ^ Encryption algorithm
                -> ByteString            -- ^ IV
                -> ByteString            -- ^ Additional authenticated data
                -> ByteString            -- ^ The message/JWT claims
-               -> (ByteString, AuthTag) -- ^ Ciphertext claims and signature tag
+               -> Maybe (AuthTag, ByteString) -- ^ Ciphertext claims and signature tag
 encryptPayload e cek iv aad msg = case e of
-    A128GCM        -> aesgcm
-    A256GCM        -> aesgcm
-    A128CBC_HS256  -> (aescbc, sig 16 hashDescrSHA256)
-    A256CBC_HS512  -> (aescbc, sig 32 hashDescrSHA512)
+    A128GCM       -> doGCM (C :: C AES128)
+    A256GCM       -> doGCM (C :: C AES256)
+    A128CBC_HS256 -> doCBC (C :: C AES128) SHA256 16
+    A256CBC_HS512 -> doCBC (C :: C AES256) SHA512 32
   where
-    aesgcm = AES.encryptGCM (AES.initAES cek) iv aad msg
-    (macKey, encKey) = B.splitAt (B.length cek `div` 2) cek
-    aescbc = AES.encryptCBC (AES.initAES encKey) iv (pad msg)
-    al     = fromIntegral (B.length aad) * 8 :: Word64
-    sig l h = authTag l h macKey $ B.concat [aad, iv, aescbc, Serialize.encode al]
+    (cbcMacKey, cbcEncKey) = B.splitAt (B.length cek `div` 2) cek
+    al = fromIntegral (B.length aad) * 8 :: Word64
 
-authTag :: Int -> HashDescr -> ByteString -> ByteString -> AuthTag
-authTag l h k m = AuthTag $ B.take l $ hmac (hashFunction h) 64 k m
+    doGCM :: BlockCipher c => C c -> Maybe (AuthTag, ByteString)
+    doGCM c = do
+        cipher <- initCipher c cek
+        aead <- maybeCryptoError (aeadInit AEAD_GCM cipher iv)
+        return $ aeadSimpleEncrypt aead aad msg 16
 
-unpad :: MonadError JwtError m => ByteString -> m ByteString
+    doCBC :: (HashAlgorithm a, BlockCipher c) => C c -> a -> Int -> Maybe (AuthTag, ByteString)
+    doCBC c a tagLen = do
+        cipher <- initCipher c cbcEncKey
+        iv'    <- makeIV iv
+        let ct = cbcEncrypt cipher iv' (pad msg)
+            mac = doMac a ct
+            tag = BA.take tagLen (BA.convert mac)
+        return (AuthTag tag, ct)
+
+    doMac :: HashAlgorithm a => a -> ByteString -> HMAC a
+    doMac _ ct = hmac cbcMacKey $ B.concat [aad, iv, ct, Serialize.encode al]
+
+unpad :: ByteString -> Maybe ByteString
 unpad bs
-    | padLen > 16 || padLen /= B.length padding = throwError BadCrypto
-    | B.any (/= padByte) padding = throwError BadCrypto
+    | padLen > 16 || padLen /= B.length padding = Nothing
+    | B.any (/= padByte) padding = Nothing
     | otherwise = return pt
   where
     len     = B.length bs
@@ -240,4 +262,3 @@ pad bs = B.append bs padding
     lastBlockSize = B.length bs `mod` 16
     padByte       = fromIntegral $ 16 - lastBlockSize :: Word8
     padding       = B.replicate (fromIntegral padByte) padByte
-
