@@ -126,6 +126,14 @@ spec =
         \s -> let msg = B.pack s in (fromJust . unpad . pad) msg == msg
       it "jwe decode/decode returns the original payload" $ property jweRoundTrip
 
+    context "miscellaneous tests" $ do
+      it "Padding byte larger than 16 is rejected" $
+        unpad "111a" @?= Nothing
+      it "Padding byte which doesn't match padding length is rejected" $
+        unpad "111\t\t\t\t\t\t\t" @?= Nothing
+      it "Padding byte which matches padding length is OK" $
+        unpad "1111111\t\t\t\t\t\t\t\t\t" @?= Just "1111111"
+
 -- verboseQuickCheckWith quickCheckWith stdArgs {maxSuccess=10000}  jweRoundTrip
 jweRoundTrip :: RNG -> JWEAlgs -> [Word8] -> Bool
 jweRoundTrip g (JWEAlgs a e) msg = encodeDecode == Right (defJweHdr {jweAlg = a, jweEnc = e}, bs)
