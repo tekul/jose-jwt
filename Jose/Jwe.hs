@@ -22,10 +22,11 @@ module Jose.Jwe
 where
 
 import Control.Applicative
-import Crypto.Cipher.Types (AuthTag(..))
+import Control.Monad (unless)
+import Control.Monad.Trans (lift)
 import Control.Monad.Trans.Either
+import Crypto.Cipher.Types (AuthTag(..))
 import Crypto.PubKey.RSA (PrivateKey(..), PublicKey(..), generateBlinder, private_pub)
-import Control.Monad.State.Strict
 import Crypto.Random (MonadRandom)
 import qualified Data.ByteArray as BA
 import Data.ByteString (ByteString)

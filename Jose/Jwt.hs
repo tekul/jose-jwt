@@ -27,7 +27,8 @@ module Jose.Jwt
     )
 where
 
-import Control.Monad.State.Strict
+import Control.Monad (when, unless)
+import Control.Monad.Trans (lift)
 import Control.Monad.Trans.Either
 import qualified Crypto.PubKey.ECC.ECDSA as ECDSA
 import Crypto.PubKey.RSA (PrivateKey(..))
