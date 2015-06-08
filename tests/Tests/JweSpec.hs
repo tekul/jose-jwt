@@ -229,12 +229,12 @@ a2seed = extractPKCS15Seed a2PrivKey a2jweKey
 data JWEAlgs = JWEAlgs JweAlg Enc deriving Show
 
 instance Arbitrary Enc where
-    arbitrary = elements [A128CBC_HS256, A256CBC_HS512, A128GCM, A256GCM]
+    arbitrary = elements [A128CBC_HS256, A192CBC_HS384, A256CBC_HS512, A128GCM, A192GCM, A256GCM]
 
 instance Arbitrary JWEAlgs where
   arbitrary = do
     a <- elements [RSA1_5, RSA_OAEP]
-    e <- elements [A128CBC_HS256, A256CBC_HS512, A128GCM, A256GCM]
+    e <- arbitrary -- elements [A128CBC_HS256, A256CBC_HS512, A128GCM, A256GCM]
     return $ JWEAlgs a e
 
 instance Arbitrary RNG where

@@ -130,12 +130,15 @@ generateCmkAndIV e = do
 
 keySize :: Enc -> Int
 keySize A128GCM = 16
+keySize A192GCM = 24
 keySize A256GCM = 32
 keySize A128CBC_HS256 = 32
+keySize A192CBC_HS384 = 48
 keySize A256CBC_HS512 = 64
 
 ivSize :: Enc -> Int
 ivSize A128GCM = 12
+ivSize A192GCM = 12
 ivSize A256GCM = 12
 ivSize _       = 16
 
@@ -182,8 +185,10 @@ decryptPayload :: Enc        -- ^ Encryption algorithm
                -> Maybe ByteString
 decryptPayload enc cek iv aad sig ct = case enc of
     A128GCM       -> doGCM (C :: C AES128)
+    A192GCM       -> doGCM (C :: C AES192)
     A256GCM       -> doGCM (C :: C AES256)
     A128CBC_HS256 -> doCBC (C :: C AES128) SHA256 16
+    A192CBC_HS384 -> doCBC (C :: C AES192) SHA384 24
     A256CBC_HS512 -> doCBC (C :: C AES256) SHA512 32
   where
     (cbcMacKey, cbcEncKey) = B.splitAt (B.length cek `div` 2) cek
@@ -220,8 +225,10 @@ encryptPayload :: Enc                   -- ^ Encryption algorithm
                -> Maybe (AuthTag, ByteString) -- ^ Ciphertext claims and signature tag
 encryptPayload e cek iv aad msg = case e of
     A128GCM       -> doGCM (C :: C AES128)
+    A192GCM       -> doGCM (C :: C AES192)
     A256GCM       -> doGCM (C :: C AES256)
     A128CBC_HS256 -> doCBC (C :: C AES128) SHA256 16
+    A192CBC_HS384 -> doCBC (C :: C AES192) SHA384 24
     A256CBC_HS512 -> doCBC (C :: C AES256) SHA512 32
   where
     (cbcMacKey, cbcEncKey) = B.splitAt (B.length cek `div` 2) cek
