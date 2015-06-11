@@ -10,7 +10,7 @@
 -- >>> g <- drgNew
 -- >>> import Crypto.PubKey.RSA
 -- >>> let ((kPub, kPr), g') = withDRG g (generate 512 65537)
--- >>> let (Jwt jwt, g'') = withDRG g' (rsaEncode RSA_OAEP A128GCM kPub "secret claims")
+-- >>> let (Right (Jwt jwt), g'') = withDRG g' (rsaEncode RSA_OAEP A128GCM kPub "secret claims")
 -- >>> fst $ withDRG g'' (rsaDecode kPr jwt)
 -- Right (JweHeader {jweAlg = RSA_OAEP, jweEnc = A128GCM, jweTyp = Nothing, jweCty = Nothing, jweZip = Nothing, jweKid = Nothing},"secret claims")
 
@@ -21,7 +21,6 @@ module Jose.Jwe
     )
 where
 
-import Control.Applicative
 import Control.Monad (unless)
 import Control.Monad.Trans (lift)
 import Control.Monad.Trans.Either
@@ -47,41 +46,42 @@ jwkEncode :: MonadRandom m
           -> Jwk                             -- ^ The key to use to encrypt the content key
           -> Payload                         -- ^ The token content (claims or nested JWT)
           -> m (Either JwtError Jwt)         -- ^ The encoded JWE if successful
-jwkEncode a e jwk payload = case jwk of
-    RsaPublicJwk kPub kid _ _ -> Right <$> rsaEncodeInternal (hdr kid) kPub bytes
-    RsaPrivateJwk kPr kid _ _ -> Right <$> rsaEncodeInternal (hdr kid) (private_pub kPr) bytes
-    _                         -> return $ Left $ KeyError "Only RSA JWKs can be used for encoding"
+jwkEncode a e jwk payload = runEitherT $ case jwk of
+    RsaPublicJwk kPub kid _ _ -> doEncode (hdr kid) (doRsa kPub) bytes
+    RsaPrivateJwk kPr kid _ _ -> doEncode (hdr kid) (doRsa (private_pub kPr)) bytes
+    SymmetricJwk  kek kid _ _ -> doEncode (hdr kid) (hoistEither . keyWrap a kek) bytes
+    _                         -> left $ KeyError "Only RSA JWKs can be used for encoding"
   where
+    doRsa kPub = EitherT . rsaEncrypt a kPub
     hdr kid = defJweHdr {jweAlg = a, jweEnc = e, jweKid = kid, jweCty = contentType}
     (contentType, bytes) = case payload of
         Claims c       -> (Nothing, c)
         Nested (Jwt b) -> (Just "JWT", b)
 
--- | Creates a JWE.
-rsaEncode :: MonadRandom m
-          => JweAlg          -- ^ RSA algorithm to use (@RSA_OAEP@ or @RSA1_5@)
-          -> Enc             -- ^ Content encryption algorithm
-          -> PublicKey       -- ^ RSA key to encrypt with
-          -> ByteString      -- ^ The JWT claims (content)
-          -> m Jwt           -- ^ The encoded JWE
-rsaEncode a e = rsaEncodeInternal (defJweHdr {jweAlg = a, jweEnc = e})
-
-rsaEncodeInternal :: MonadRandom m
-                  => JweHeader
-                  -> PublicKey
-                  -> ByteString
-                  -> m Jwt
-rsaEncodeInternal h pubKey claims = do
-    (cmk, iv) <- generateCmkAndIV e
+doEncode :: MonadRandom m
+    => JweHeader
+    -> (ByteString -> EitherT JwtError m ByteString)
+    -> ByteString
+    -> EitherT JwtError m Jwt
+doEncode h encryptKey claims = do
+    (cmk, iv) <- lift (generateCmkAndIV e)
     let Just (AuthTag sig, ct) = encryptPayload e cmk iv aad claims
-    jweKey <- rsaEncrypt a pubKey cmk
+    jweKey <- encryptKey cmk
     let jwe = B.intercalate "." $ map B64.encode [hdr, jweKey, iv, ct, BA.convert sig]
     return (Jwt jwe)
   where
-    a   = jweAlg h
     e   = jweEnc h
     hdr = encodeHeader h
     aad = B64.encode hdr
+
+-- | Creates a JWE with the content key encoded using RSA.
+rsaEncode :: MonadRandom m
+    => JweAlg          -- ^ RSA algorithm to use (@RSA_OAEP@ or @RSA1_5@)
+    -> Enc             -- ^ Content encryption algorithm
+    -> PublicKey       -- ^ RSA key to encrypt with
+    -> ByteString      -- ^ The JWT claims (content)
+    -> m (Either JwtError Jwt) -- ^ The encoded JWE
+rsaEncode a e kPub claims = runEitherT $ doEncode (defJweHdr {jweAlg = a, jweEnc = e}) (EitherT . rsaEncrypt a kPub) claims
 
 -- | Decrypts a JWE.
 rsaDecode :: MonadRandom m

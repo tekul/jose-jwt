@@ -15,6 +15,8 @@ module Jose.Internal.Crypto
     , encryptPayload
     , decryptPayload
     , generateCmkAndIV
+    , keyWrap
+    , keyUnwrap
     , pad
     , unpad
     )
@@ -33,9 +35,11 @@ import qualified Crypto.PubKey.RSA.OAEP as OAEP
 import           Crypto.Random (MonadRandom, getRandomBytes)
 import           Crypto.PubKey.HashDescr
 import           Crypto.MAC.HMAC (HMAC (..), hmac)
-import           Data.ByteArray as BA
+import           Data.Bits (xor)
+import qualified Data.ByteArray as BA
 import           Data.ByteString (ByteString)
 import qualified Data.ByteString as B
+import           Data.Either.Combinators
 import qualified Data.Serialize as Serialize
 import qualified Data.Text as T
 import           Data.Word (Word64, Word8)
@@ -122,40 +126,36 @@ ecVerify a key msg sig = case a of
 -- Used to encrypt a message.
 generateCmkAndIV :: MonadRandom m
                  => Enc -- ^ The encryption algorithm to be used
-                 -> m (B.ByteString, B.ByteString) -- ^ The key, IV and generator
+                 -> m (B.ByteString, B.ByteString) -- ^ The key, IV
 generateCmkAndIV e = do
     cmk <- getRandomBytes (keySize e)
     iv  <- getRandomBytes (ivSize e)   -- iv for aes gcm or cbc
     return (cmk, iv)
+  where
+    keySize A128GCM = 16
+    keySize A192GCM = 24
+    keySize A256GCM = 32
+    keySize A128CBC_HS256 = 32
+    keySize A192CBC_HS384 = 48
+    keySize A256CBC_HS512 = 64
 
-keySize :: Enc -> Int
-keySize A128GCM = 16
-keySize A192GCM = 24
-keySize A256GCM = 32
-keySize A128CBC_HS256 = 32
-keySize A192CBC_HS384 = 48
-keySize A256CBC_HS512 = 64
-
-ivSize :: Enc -> Int
-ivSize A128GCM = 12
-ivSize A192GCM = 12
-ivSize A256GCM = 12
-ivSize _       = 16
+    ivSize A128GCM = 12
+    ivSize A192GCM = 12
+    ivSize A256GCM = 12
+    ivSize _       = 16
 
 -- | Encrypts a message (typically a symmetric key) using RSA.
 rsaEncrypt :: MonadRandom m
-           => JweAlg             -- ^ The algorithm (either @RSA1_5@ or @RSA_OAEP@)
-           -> RSA.PublicKey      -- ^ The encryption key
-           -> B.ByteString       -- ^ The message to encrypt
-           -> m B.ByteString     -- ^ The encrypted message
-rsaEncrypt a pubKey content = do
--- TODO: Check that we can't cause any errors here with our RSA public key
-    Right ct <- encrypt pubKey content
-    return ct
+    => JweAlg             -- ^ The algorithm (either @RSA1_5@ or @RSA_OAEP@)
+    -> RSA.PublicKey      -- ^ The encryption key
+    -> B.ByteString       -- ^ The message to encrypt
+    -> m (Either JwtError B.ByteString)     -- ^ The encrypted message
+rsaEncrypt a k bs = case a of
+    RSA1_5   -> mapErr (PKCS15.encrypt k bs)
+    RSA_OAEP -> mapErr (OAEP.encrypt (OAEP.defaultOAEPParams SHA1) k bs)
+    _        -> return (Left (BadAlgorithm "Not an RSA algorithm"))
   where
-    encrypt = case a of
-        RSA1_5   -> PKCS15.encrypt
-        RSA_OAEP -> OAEP.encrypt (OAEP.defaultOAEPParams SHA1)
+    mapErr = fmap (mapLeft (const BadCrypto))
 
 -- | Decrypts an RSA encrypted message.
 rsaDecrypt :: Maybe RSA.Blinder
@@ -210,8 +210,8 @@ decryptPayload enc cek iv aad sig ct = case enc of
 
     checkMac :: HashAlgorithm a => a -> Int -> Maybe ()
     checkMac a l = do
-        let mac = BA.take l $ BA.convert $ doMac a :: Bytes
-        unless (sig `constEq` mac) Nothing
+        let mac = BA.take l $ BA.convert $ doMac a :: BA.Bytes
+        unless (sig `BA.constEq` mac) Nothing
 
     doMac :: HashAlgorithm a => a -> HMAC a
     doMac _ = hmac cbcMacKey $ B.concat [aad, iv, ct, Serialize.encode al]
@@ -269,3 +269,71 @@ pad bs = B.append bs padding
     lastBlockSize = B.length bs `mod` 16
     padByte       = fromIntegral $ 16 - lastBlockSize :: Word8
     padding       = B.replicate (fromIntegral padByte) padByte
+
+-- Key wrapping and unwrapping functions
+
+-- | <https://tools.ietf.org/html/rfc3394#section-2.2.1>
+keyWrap :: JweAlg -> ByteString -> ByteString -> Either JwtError ByteString
+keyWrap alg kek cek = case alg of
+    A128KW -> doKeyWrap (C :: C AES128)
+    A192KW -> doKeyWrap (C :: C AES192)
+    A256KW -> doKeyWrap (C :: C AES256)
+    _      -> Left (BadAlgorithm "Not a keywrap algorithm")
+  where
+    l = B.length cek
+    n = l `div` 8
+    iv = BA.replicate 8 166 :: ByteString
+
+    doKeyWrap c = do
+        when (l < 16 || l `mod` 8 /= 0) (Left (KeyError "Invalid content key"))
+        cipher <- maybe (Left (KeyError "cipher initialization failed")) return $ initCipher c kek
+        let p = toBlocks cek
+            (r0, r) = foldl (doRound (ecbEncrypt cipher) 1) (iv, p) [0..5]
+        Right $ B.concat (r0 : r)
+
+    doRound _ _  (a, []) _ = (a, [])
+    doRound enc i (a, r:rs) j =
+        let b  = enc $ B.concat [a, r]
+            t  = fromIntegral ((n*j) + i) :: Word8
+            a' = txor t (B.take 8 b)
+            r' = B.drop 8 b
+            next = doRound enc (i+1) (a', rs) j
+        in (fst next, r' : snd next)
+
+    txor t b = B.snoc (B.init b) (B.last b `xor` t)
+
+toBlocks :: ByteString -> [ByteString]
+toBlocks bytes
+    | bytes == B.empty = []
+    | otherwise    = let (b, bs') = B.splitAt 8 bytes
+                        in  b : toBlocks bs'
+
+keyUnwrap :: JweAlg -> ByteString -> ByteString -> Either JwtError ByteString
+keyUnwrap alg kek encK = case alg of
+    A128KW -> doUnWrap (C :: C AES128)
+    A192KW -> doUnWrap (C :: C AES192)
+    A256KW -> doUnWrap (C :: C AES256)
+    _      -> Left (BadAlgorithm "Not a keywrap algorithm")
+  where
+    l = B.length encK
+    n = (l `div` 8) - 1
+    iv = BA.replicate 8 166 :: ByteString
+
+    doUnWrap c = do
+        when (l < 24 || l `mod` 8 /= 0) (Left BadCrypto)
+        cipher <- maybe (Left BadCrypto) return $ initCipher c kek
+        let r = toBlocks encK
+            (p0, p) = foldl (doRound (ecbDecrypt cipher) n) (head r, reverse (tail r)) (reverse [0..5])
+        unless (p0 == iv) (Left BadCrypto)
+        Right $ B.concat (reverse p)
+
+    doRound _ _  (a, []) _ = (a, [])
+    doRound dec i (a, r:rs) j =
+        let b  = dec $ B.concat [txor t a, r]
+            t  = fromIntegral ((n*j) + i) :: Word8
+            a' = B.take 8 b
+            r' = B.drop 8 b
+            next = doRound dec (i-1) (a', rs) j
+        in (fst next, r' : snd next)
+
+    txor t b = B.snoc (B.init b) (B.last b `xor` t)
