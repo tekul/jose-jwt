@@ -125,17 +125,23 @@ canDecodeJwe hdr jwk = jwkUse jwk /= Just Sig &&
     case (jweAlg hdr, jwk) of
         (RSA1_5,   RsaPrivateJwk {}) -> True
         (RSA_OAEP, RsaPrivateJwk {}) -> True
+        (A128KW,   SymmetricJwk {})  -> True
+        (A192KW,   SymmetricJwk {})  -> True
+        (A256KW,   SymmetricJwk {})  -> True
         _                            -> False
 
 canEncodeJwe :: JweAlg -> Jwk -> Bool
 canEncodeJwe a jwk = jwkUse jwk /= Just Sig &&
     algCompatible (Encrypted a) jwk &&
     case (a, jwk) of
-        (RSA1_5,   RsaPublicJwk {}) -> True
-        (RSA_OAEP, RsaPublicJwk {}) -> True
+        (RSA1_5,   RsaPublicJwk {})  -> True
+        (RSA_OAEP, RsaPublicJwk {})  -> True
         (RSA1_5,   RsaPrivateJwk {}) -> True
         (RSA_OAEP, RsaPrivateJwk {}) -> True
-        _                           -> False
+        (A128KW,   SymmetricJwk {})  -> True
+        (A192KW,   SymmetricJwk {})  -> True
+        (A256KW,   SymmetricJwk {})  -> True
+        _                            -> False
 
 keyIdCompatible :: Maybe KeyId -> Jwk -> Bool
 keyIdCompatible Nothing _ = True

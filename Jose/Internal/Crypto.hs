@@ -146,11 +146,11 @@ generateCmkAndIV e = do
 
 -- | Encrypts a message (typically a symmetric key) using RSA.
 rsaEncrypt :: MonadRandom m
-    => JweAlg             -- ^ The algorithm (either @RSA1_5@ or @RSA_OAEP@)
-    -> RSA.PublicKey      -- ^ The encryption key
+    => RSA.PublicKey      -- ^ The encryption key
+    -> JweAlg             -- ^ The algorithm (either @RSA1_5@ or @RSA_OAEP@)
     -> B.ByteString       -- ^ The message to encrypt
     -> m (Either JwtError B.ByteString)     -- ^ The encrypted message
-rsaEncrypt a k bs = case a of
+rsaEncrypt k a bs = case a of
     RSA1_5   -> mapErr (PKCS15.encrypt k bs)
     RSA_OAEP -> mapErr (OAEP.encrypt (OAEP.defaultOAEPParams SHA1) k bs)
     _        -> return (Left (BadAlgorithm "Not an RSA algorithm"))
@@ -159,15 +159,16 @@ rsaEncrypt a k bs = case a of
 
 -- | Decrypts an RSA encrypted message.
 rsaDecrypt :: Maybe RSA.Blinder
-           -> JweAlg                        -- ^ The RSA algorithm to use
            -> RSA.PrivateKey                -- ^ The decryption key
+           -> JweAlg                        -- ^ The RSA algorithm to use
            -> B.ByteString                  -- ^ The encrypted content
            -> Either JwtError B.ByteString  -- ^ The decrypted key
-rsaDecrypt blinder a rsaKey jweKey = either (const $ throwError BadCrypto) return $ decrypt rsaKey jweKey
+rsaDecrypt blinder rsaKey a jweKey = case a of
+    RSA1_5   -> mapErr (PKCS15.decrypt blinder rsaKey jweKey)
+    RSA_OAEP -> mapErr (OAEP.decrypt blinder (OAEP.defaultOAEPParams SHA1) rsaKey jweKey)
+    _        -> Left (BadAlgorithm "Not an RSA algorithm")
   where
-    decrypt = case a of
-        RSA1_5   -> PKCS15.decrypt blinder
-        RSA_OAEP -> OAEP.decrypt blinder (OAEP.defaultOAEPParams SHA1)
+    mapErr = mapLeft (const BadCrypto)
 
 -- Dummy type to constrain Cipher type
 data C c = C
@@ -308,8 +309,8 @@ toBlocks bytes
     | otherwise    = let (b, bs') = B.splitAt 8 bytes
                         in  b : toBlocks bs'
 
-keyUnwrap :: JweAlg -> ByteString -> ByteString -> Either JwtError ByteString
-keyUnwrap alg kek encK = case alg of
+keyUnwrap :: ByteString -> JweAlg -> ByteString -> Either JwtError ByteString
+keyUnwrap kek alg encK = case alg of
     A128KW -> doUnWrap (C :: C AES128)
     A192KW -> doUnWrap (C :: C AES192)
     A256KW -> doUnWrap (C :: C AES256)

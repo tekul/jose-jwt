@@ -4,7 +4,7 @@
 module Tests.JweSpec where
 
 import Control.Applicative
-import Data.Aeson (eitherDecode, decodeStrict')
+import Data.Aeson (decodeStrict')
 import Data.Bits (xor)
 import Data.Maybe (fromJust)
 import Data.Word (Word8, Word64)
@@ -44,7 +44,7 @@ spec =
 
       it "generates the expected RSA-encrypted content key" $
         withDRG (RNG a1oaepSeed)
-            (rsaEncrypt RSA_OAEP a1PubKey a1cek) @?= (Right a1jweKey, RNG "")
+            (rsaEncrypt a1PubKey RSA_OAEP a1cek) @?= (Right a1jweKey, RNG "")
 
       it "encrypts the payload to the expected ciphertext and authentication tag" $ do
         let aad = B64.encode . encodeHeader $ a1Header
@@ -58,19 +58,19 @@ spec =
         withBlinder (Jwe.rsaDecode a1PrivKey a1) @?= Right (a1Header, a1Payload)
 
       it "decodes the JWK to the correct RSA key values" $ do
-        let Right (Jwk.RsaPrivateJwk (RSA.PrivateKey pubKey d 0 0 0 0 0) _ _ _) = eitherDecode a1jwk
+        let Just (Jwk.RsaPrivateJwk (RSA.PrivateKey pubKey d 0 0 0 0 0) _ _ _) = decodeStrict' a1jwk
         RSA.public_n pubKey  @?= a1RsaModulus
         RSA.public_e pubKey  @?= rsaExponent
         d                    @?= a1RsaPrivateExponent
 
       it "decodes the JWT using the JWK" $ do
-        let Right k1 = eitherDecode a1jwk
-            Just  k2 = decodeStrict' a2jwk
+        let Just k1 = decodeStrict' a1jwk
+            Just k2 = decodeStrict' a2jwk
         withBlinder (decode [k2, k1] (Just $ JweEncoding RSA_OAEP A256GCM) a1) @?= (Right $ Jwe (a1Header, a1Payload))
 
       it "a truncated CEK returns BadCrypto" $ do
         let [hdr, _, iv, payload, tag] = BC.split '.' a1
-            (Right newEk, _) = withDRG blinderRNG (rsaEncrypt RSA_OAEP a1PubKey (B.tail a1cek))
+            (Right newEk, _) = withDRG blinderRNG (rsaEncrypt a1PubKey RSA_OAEP (B.tail a1cek))
         withBlinder (Jwe.rsaDecode a1PrivKey (B.intercalate "." [hdr, B64.encode newEk, iv, payload, tag])) @?= Left BadCrypto
 
       it "a truncated payload returns BadCrypto" $ do
@@ -89,7 +89,7 @@ spec =
       let aad = B64.encode . encodeHeader $ a2Header
 
       it "generates the expected RSA-encrypted content key" $
-        withDRG (RNG a2seed) (rsaEncrypt RSA1_5 a2PubKey a2cek) @?= (Right a2jweKey, RNG "")
+        withDRG (RNG a2seed) (rsaEncrypt a2PubKey RSA1_5 a2cek) @?= (Right a2jweKey, RNG "")
 
       it "encrypts the payload to the expected ciphertext and authentication tag" $
         encryptPayload A128CBC_HS256 a2cek a2iv aad a2Payload @?= Just (a2Tag, a2Ciphertext)
@@ -106,7 +106,7 @@ spec =
 
       it "a truncated CEK returns BadCrypto" $ do
         let [hdr, _, iv, payload, tag] = BC.split '.' a2
-            (Right newEk, _) = withDRG blinderRNG $ rsaEncrypt RSA1_5 a2PubKey (B.tail a2cek)
+            (Right newEk, _) = withDRG blinderRNG $ rsaEncrypt a2PubKey RSA1_5 (B.tail a2cek)
         withBlinder (Jwe.rsaDecode a2PrivKey (B.intercalate "." [hdr, B64.encode newEk, iv, payload, tag])) @?= Left BadCrypto
 
       it "a truncated payload returns BadCrypto" $ do
@@ -119,12 +119,15 @@ spec =
             newIv = B64.encode (B.tail a2iv)
         withBlinder (Jwe.rsaDecode a2PrivKey (B.concat [fore, newIv, aft])) @?= Left BadCrypto
 
-    context "when using JWE Appendix 3 data" $
-      it "encodes the payload to the epected JWT" $ do
-        let Right jwk = eitherDecode a3jwk
+    context "when using JWE Appendix 3 data" $ do
+      let Just jwk = decodeStrict' a3jwk
+          a3Header = defJweHdr {jweAlg = A128KW, jweEnc = A128CBC_HS256}
+      it "encodes the payload to the epected JWT" $
         withDRG (RNG $ B.concat [a3cek, a3iv])
             (Jwe.jwkEncode A128KW A128CBC_HS256 jwk (Claims a3Payload)) @?= (Right (Jwt a3), RNG "")
 
+      it "decodes the JWT using the JWK" $
+        withBlinder (decode [jwk] Nothing a3) @?= (Right $ Jwe (a3Header, a3Payload))
 
     context "when used with quickcheck" $ do
       it "padded msg is always a multiple of 16" $ property $
@@ -143,11 +146,12 @@ spec =
 
 -- verboseQuickCheckWith quickCheckWith stdArgs {maxSuccess=10000}  jweRoundTrip
 jweRoundTrip :: RNG -> JWEAlgs -> [Word8] -> Bool
-jweRoundTrip g (JWEAlgs a e) msg = encodeDecode == Right (defJweHdr {jweAlg = a, jweEnc = e}, bs)
+jweRoundTrip g (JWEAlgs a e) msg = encodeDecode == Right (Jwe (defJweHdr {jweAlg = a, jweEnc = e}, bs))
   where
+    jwks = map (fromJust . decodeStrict') [a1jwk, a2jwk, a3jwk]
     bs = B.pack msg
-    encodeDecode = fst (withDRG blinderRNG (Jwe.rsaDecode a2PrivKey encoded))
-    Right encoded = unJwt <$> fst (withDRG g (Jwe.rsaEncode a e a2PubKey bs))
+    encodeDecode = fst (withDRG blinderRNG (decode jwks Nothing encoded))
+    Right encoded = unJwt <$> fst (withDRG g (encode jwks (JweEncoding a e) (Claims bs)))
 
 withBlinder = fst . withDRG blinderRNG
 
@@ -260,8 +264,8 @@ instance Arbitrary Enc where
 
 instance Arbitrary JWEAlgs where
   arbitrary = do
-    a <- elements [RSA1_5, RSA_OAEP]
-    e <- arbitrary -- elements [A128CBC_HS256, A256CBC_HS512, A128GCM, A256GCM]
+    a <- elements [RSA1_5, RSA_OAEP, A128KW, A192KW, A256KW]
+    e <- arbitrary
     return $ JWEAlgs a e
 
 instance Arbitrary RNG where

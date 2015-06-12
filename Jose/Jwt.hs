@@ -27,7 +27,7 @@ module Jose.Jwt
     )
 where
 
-import Control.Monad (when, unless)
+import Control.Monad (when, unless, liftM)
 import Control.Monad.Trans (lift)
 import Control.Monad.Trans.Either
 import qualified Crypto.PubKey.ECC.ECDSA as ECDSA
@@ -75,9 +75,10 @@ encode jwks encoding msg = runEitherT $ case encoding of
 -- Locates a matching key by header @kid@ value where possible
 -- or by suitable key type for the encoding algorithm.
 --
--- The algorithm(s) used can be optionally be supplied for validation
+-- The algorithm(s) used can optionally be supplied for validation
 -- by setting the @JwtEncoding@ parameter, in which case an error will
--- be returned if they don't match.
+-- be returned if they don't match. If you expect the tokens to use
+-- a particular algorithm, then you should set this parameter.
 --
 -- For unsecured tokens (with algorithm "none"), the expected algorithm
 -- must be set to @Just (JwsEncoding None)@ or an error will be returned.
@@ -114,11 +115,7 @@ decode keySet encoding jwt = runEitherT $ do
         SymmetricJwk  kb   _ _ _ -> Jws.hmacDecode kb jwt
 
     decodeWithJwe :: MonadRandom m => Jwk -> EitherT JwtError m (Maybe JwtContent)
-    decodeWithJwe k = case k of
-        RsaPrivateJwk kPr _ _ _ -> do
-            e <- lift $ Jwe.rsaDecode kPr jwt
-            either (const $ return Nothing) (return . Just . Jwe) e
-        _                       -> left $ KeyError "Not a JWE key (shouldn't happen)"
+    decodeWithJwe k = liftM (either (const Nothing) Just) (lift (Jwe.jwkDecode k jwt))
 
 -- | Convenience function to return the claims contained in a JWT.
 -- This is required in situations such as client assertion authentication,
