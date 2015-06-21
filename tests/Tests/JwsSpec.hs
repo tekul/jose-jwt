@@ -11,11 +11,10 @@ import qualified Data.ByteArray as BA
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 ()
 import Data.Word (Word64)
-import Crypto.Hash (SHA256)
+import Crypto.Hash.Algorithms (SHA256(..))
 import Crypto.MAC.HMAC (HMAC, hmac)
 import qualified Crypto.PubKey.RSA as RSA
 import qualified Crypto.PubKey.RSA.PKCS15 as RSAPKCS15
-import Crypto.PubKey.HashDescr
 import Crypto.Random (withDRG, drgNewTest)
 
 import Jose.Jwt
@@ -60,7 +59,7 @@ spec =
           fstWithRNG (decode [k21] (Just (JwsEncoding RS256)) a21) @?= (Right $ Jws (defJwsHdr {jwsAlg = RS256}, a21Payload))
 
         it "encodes the payload to the expected JWT" $ do
-          let sign = either (error "Sign failed") id . RSAPKCS15.sign Nothing hashDescrSHA256 rsaPrivateKey
+          let sign = either (error "Sign failed") id . RSAPKCS15.sign Nothing (Just SHA256) rsaPrivateKey
           signWithHeader sign a21Header a21Payload @?= a21
 
         it "encodes/decodes using RS256" $

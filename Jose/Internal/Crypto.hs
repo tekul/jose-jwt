@@ -33,7 +33,6 @@ import qualified Crypto.PubKey.RSA as RSA
 import qualified Crypto.PubKey.RSA.PKCS15 as PKCS15
 import qualified Crypto.PubKey.RSA.OAEP as OAEP
 import           Crypto.Random (MonadRandom, getRandomBytes)
-import           Crypto.PubKey.HashDescr
 import           Crypto.MAC.HMAC (HMAC (..), hmac)
 import           Data.Bits (xor)
 import qualified Data.ByteArray as BA
@@ -78,12 +77,12 @@ rsaSign :: Maybe RSA.Blinder  -- ^ RSA blinder
         -> ByteString         -- ^ Message to sign
         -> Either JwtError ByteString    -- ^ The signature
 rsaSign blinder a key msg = case a of
-    RS256 -> go hashDescrSHA256
-    RS384 -> go hashDescrSHA384
-    RS512 -> go hashDescrSHA512
+    RS256 -> go SHA256
+    RS384 -> go SHA384
+    RS512 -> go SHA512
     _     -> Left . BadAlgorithm . T.pack $ "Not an RSA algorithm: " ++ show a
   where
-    go h = either (const $ Left BadCrypto) Right $ PKCS15.sign blinder h key msg
+    go h = either (const $ Left BadCrypto) Right $ PKCS15.sign blinder (Just h) key msg
 
 -- | Verify the signature for a message using an RSA public key.
 --
@@ -95,12 +94,12 @@ rsaVerify :: JwsAlg        -- ^ The signature algorithm. Used to obtain the hash
           -> ByteString    -- ^ The signature to check
           -> Bool          -- ^ Whether the signature is correct
 rsaVerify a key msg sig = case a of
-    RS256 -> go hashDescrSHA256
-    RS384 -> go hashDescrSHA384
-    RS512 -> go hashDescrSHA512
+    RS256 -> go SHA256
+    RS384 -> go SHA384
+    RS512 -> go SHA512
     _     -> False
   where
-    go h = PKCS15.verify h key msg sig
+    go h = PKCS15.verify (Just h) key msg sig
 
 -- | Verify the signature for a message using an EC public key.
 --
