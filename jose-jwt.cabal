@@ -5,16 +5,12 @@ Homepage:           http://github.com/tekul/jose-jwt
 Bug-Reports:        http://github.com/tekul/jose-jwt/issues
 Description:
     .
-    Intended to provide support for the JOSE suite of IETF (draft)
-    standards and the closely related JWT (JSON web token) spec
-    (<http://tools.ietf.org/html/draft-ietf-oauth-json-web-token-32/>).
+    An implementation of the JOSE suite of IETF standards
+    and the closely related JWT (JSON web token) spec
+    (<https://tools.ietf.org/html/rfc7519/>).
     .
     Both signed and encrypted JWTs are supported, as well as simple
-    JWK format keys.
-    .
-    The library is currently intended to support work on an OpenID
-    Connect implementation and the APIs should not be considered
-    complete, stable or secure for all use cases.
+    JWK keys.
 
 Author:             Luke Taylor <tekul.hs@gmail.com>
 Maintainer:         Luke Taylor <tekul.hs@gmail.com>
