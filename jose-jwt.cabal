@@ -43,7 +43,7 @@ Library
                     , Jose.Internal.Crypto
   Other-Modules:      Jose.Types
   Build-Depends:      base >= 4 && < 5
-                    , aeson >= 0.8.1.0
+                    , aeson >= 0.8.0.2
                     , base64-bytestring >= 1
                     , bytestring >= 0.9
                     , cereal >= 0.4
