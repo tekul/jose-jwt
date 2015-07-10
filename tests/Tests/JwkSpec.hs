@@ -8,8 +8,12 @@ import Test.HUnit hiding (Test)
 import Data.Aeson
 import Data.Aeson.QQ
 import qualified Data.ByteString.Char8 ()
+import qualified Data.HashMap.Strict as H
+import Data.Word (Word64)
+import qualified Data.Vector as V
 import Crypto.PubKey.ECC.ECDSA
 import Crypto.PubKey.ECC.Types
+import Crypto.Random (drgNewTest, withDRG)
 
 import Jose.Jwt (defJwsHdr, JwsHeader(..), KeyId(..))
 import Jose.Jwk
@@ -37,15 +41,20 @@ Object keySet = [aesonQQ|
 spec :: Spec
 spec = do
     let Success s@(JwkSet _) = fromJSON (Object keySet) :: Result JwkSet
-    describe "JWK encoding and decoding" $
+        Just s'  = decode' (encode s) :: Maybe JwkSet
+        Just s'' = decode' (encode s) :: Maybe JwkSet
+        kss      = keys s'
+        k0       = head kss
+        k1       = kss !! 1
+        k3       = kss !! 3
+        k4       = kss !! 4
+    describe "JWK encoding and decoding" $ do
         it "decodes and encodes an entire key set successfully" $ do
-            let Just s' = decode' (encode s) :: Maybe JwkSet
-                kss = keys s'
-                RsaPublicJwk  _ key0Id key0Use    a0   = head kss
-                RsaPublicJwk  _ key1Id key1Use    _    = kss !! 1
+            let RsaPublicJwk  _ key0Id key0Use    a0   = k0
+                RsaPublicJwk  _ key1Id key1Use    _    = k1
                 EcPublicJwk   k key2Id key2Use    _ _  = kss !! 2
-                EcPublicJwk   _ key3Id key3Use    _ _  = kss !! 3
-                SymmetricJwk  _ key4Id Nothing    _    = kss !! 4
+                EcPublicJwk _ key3Id key3Use  _ _      = k3
+                SymmetricJwk _ key4Id Nothing _        = k4
                 EcPublicJwk   _ key5Id (Just Enc) _ _  = kss !! 5
                 RsaPublicJwk  _ key6Id Nothing    a6   = kss !! 6
                 EcPrivateJwk  _ key7Id (Just Enc) _ _  = kss !! 7
@@ -68,6 +77,22 @@ spec = do
             key3Use @?= Just Enc
             a6      @?= Just (Signed RS256)
             a8      @?= Just (Signed RS256)
+            isPublic k3 @?= True
+            isPublic k4 @?= False
+            isPrivate k4 @?= False
+        it "shameless Show and Eq coverage boosting" $ do
+            s' @?= s''
+            assertBool "Different sets aren't equal" (s' /= JwkSet { keys = take 8 kss ++ [k0]})
+            assertBool "Show stuff" $ showCov s' && showCov k0 && showCov k3 && showCov Sig
+            assertBool "Different keys should be unequal" (k0 /= k1)
+
+    describe "Errors in JWK data" $ do
+        let Just (Array ks) = H.lookup "keys" keySet
+            Object k0obj = V.head ks
+        it "invalid Base64 returns an error" $ do
+            let result = fromJSON (Object $ H.insert "n" (String "NotBase64**") k0obj) :: Result Jwk
+            result @?= Error "could not base64 decode bytes"
+
 
     describe "JWK Algorithm matching" $ do
         let jwks = keys s
@@ -89,3 +114,24 @@ spec = do
             -- Only key a0 matches. The other 3 RSA keys are signing keys
             let jwks' = filter (canEncodeJwe RSA1_5) jwks
             length jwks' @?= 1
+
+    describe "RSA Key generation" $ do
+        let rng = drgNewTest (w, w, w, w, w) where w = 1 :: Word64
+            kid = KeyId "mykey"
+            ((kPub, kPr), _) = withDRG rng (generateRsaKeyPair 512 kid Sig Nothing)
+        it "keys generated with same RNG are equal" $ do
+            let ((kPub', kPr'), _) = withDRG rng (generateRsaKeyPair 512 kid Sig Nothing)
+            kPub' @?= kPub
+            kPr'  @?= kPr
+        it "isPublic and isPrivate are correct for RSA keys" $ do
+            isPublic kPub @?= True
+            isPublic kPr  @?= False
+            isPrivate kPr @?= True
+        it "keys have supplied ID" $ do
+            jwkId kPr  @?= Just kid
+            jwkId kPub @?= Just kid
+        it "keys have supplied use" $ do
+            jwkUse kPr  @?= Just Sig
+            jwkUse kPub @?= Just Sig
+  where
+    showCov x = showList [x] `seq` showsPrec 1 x `seq` show x `seq` True
