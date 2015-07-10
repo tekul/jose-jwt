@@ -1,9 +1,8 @@
-{-# LANGUAGE OverloadedStrings, DeriveGeneric #-}
+{-# LANGUAGE OverloadedStrings, DeriveGeneric, RecordWildCards #-}
 {-# OPTIONS_HADDOCK prune #-}
 
 module Jose.Jwk
-    ( KeyType
-    , KeyUse (..)
+    ( KeyUse (..)
     , KeyId
     , Jwk (..)
     , JwkSet (..)
@@ -20,6 +19,7 @@ module Jose.Jwk
 where
 
 import           Control.Applicative (pure)
+import           Control.Monad (unless)
 import           Crypto.Random (MonadRandom)
 import qualified Crypto.PubKey.RSA as RSA
 import qualified Crypto.PubKey.ECC.ECDSA as ECDSA
@@ -28,6 +28,7 @@ import           Crypto.Number.Serialize
 import           Data.Aeson (genericToJSON, Value(..), FromJSON(..), ToJSON(..), withText)
 import           Data.Aeson.Types (Parser, Options (..), defaultOptions)
 import           Data.ByteString (ByteString)
+import           Data.Maybe (isNothing)
 import           Data.Text (Text)
 import qualified Data.Text.Encoding as TE
 import           GHC.Generics (Generic)
@@ -39,7 +40,7 @@ import           Jose.Types (KeyId, JwsHeader(..), JweHeader(..))
 data KeyType = Rsa
              | Ec
              | Oct
-               deriving (Eq, Show)
+               deriving (Eq)
 
 data EcCurve = P_256
              | P_384
@@ -50,11 +51,11 @@ data KeyUse  = Sig
              | Enc
                deriving (Eq,Show)
 
-data Jwk = RsaPublicJwk  RSA.PublicKey (Maybe KeyId) (Maybe KeyUse) (Maybe Alg)
-         | RsaPrivateJwk RSA.PrivateKey (Maybe KeyId) (Maybe KeyUse) (Maybe Alg)
-         | EcPublicJwk   ECDSA.PublicKey (Maybe KeyId) (Maybe KeyUse) (Maybe Alg) EcCurve
-         | EcPrivateJwk  ECDSA.KeyPair   (Maybe KeyId) (Maybe KeyUse) (Maybe Alg) EcCurve
-         | SymmetricJwk  ByteString (Maybe KeyId) (Maybe KeyUse) (Maybe Alg)
+data Jwk = RsaPublicJwk  !RSA.PublicKey   !(Maybe KeyId) !(Maybe KeyUse) !(Maybe Alg)
+         | RsaPrivateJwk !RSA.PrivateKey  !(Maybe KeyId) !(Maybe KeyUse) !(Maybe Alg)
+         | EcPublicJwk   !ECDSA.PublicKey !(Maybe KeyId) !(Maybe KeyUse) !(Maybe Alg) !EcCurve
+         | EcPrivateJwk  !ECDSA.KeyPair   !(Maybe KeyId) !(Maybe KeyUse) !(Maybe Alg) !EcCurve
+         | SymmetricJwk  !ByteString      !(Maybe KeyId) !(Maybe KeyUse) !(Maybe Alg)
            deriving (Show, Eq)
 
 data JwkSet = JwkSet
@@ -328,7 +329,7 @@ data JwkData = J
     , x5u :: Maybe Text
     , x5c :: Maybe [Text]
     , x5t :: Maybe Text
-    } deriving (Show, Generic)
+    } deriving (Generic)
 
 instance FromJSON JwkData
 instance ToJSON   JwkData where
@@ -358,22 +359,40 @@ defJwk = J
     }
 
 createJwk :: JwkData -> Either String Jwk
-createJwk kd = case kd of
-    J Rsa (Just nb) (Just eb) Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing u a i _ _ _ ->
-        return $ RsaPublicJwk (rsaPub nb eb) i u a
-    J Rsa (Just nb) (Just eb) (Just db) mp mq mdp mdq mqi Nothing Nothing Nothing Nothing u a i _ _ _ ->
-        return $ RsaPrivateJwk (RSA.PrivateKey (rsaPub nb eb) (os2ip $ bytes db) (os2mip mp) (os2mip mq) (os2mip mdp) (os2mip mdq) (os2mip mqi)) i u a
-    J Oct Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing (Just kb) Nothing Nothing Nothing u a i Nothing Nothing Nothing ->
-        return $ SymmetricJwk (bytes kb) i u a
-    J Ec  Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing (Just crv') (Just xb) (Just yb) u a i Nothing Nothing Nothing ->
-        return $ EcPublicJwk (ECDSA.PublicKey (curve crv') (ecPoint xb yb)) i u a crv'
-    J Ec  Nothing Nothing (Just db) Nothing Nothing Nothing Nothing Nothing Nothing (Just crv') (Just xb) (Just yb) u a i Nothing Nothing Nothing ->
-        return $ EcPrivateJwk (ECDSA.KeyPair (curve crv') (ecPoint xb yb) (os2ip (bytes db))) i u a crv'
-    _ -> Left $ "Invalid key data. Didn't match any known JWK parameter combinations:" ++ show kd
+createJwk J {..} = case kty of
+    Rsa -> do
+        nb <- note "n is required for an RSA key" n
+        eb <- note "e is required for an RSA key" e
+        checkNoEc
+        let kPub = rsaPub nb eb
+        case d of
+            Nothing -> do
+                unless (isNothing (sequence [p, q, dp, dq, qi])) (Left "RSA private parameters can't be set for a public key")
+                return (RsaPublicJwk kPub kid use alg)
+            Just db -> return $ RsaPrivateJwk (RSA.PrivateKey kPub (os2ip (bytes db)) (os2mip p) (os2mip q) (os2mip dp) (os2mip dq) (os2mip qi)) kid use alg
+    Oct -> do
+        kb <- note "k is required for a symmetric key" k
+        unless (isNothing (sequence [n, e, d, p, q, dp, dq, qi])) (Left "RSA parameters can't be set for a symmetric key")
+        checkNoEc
+        return $ SymmetricJwk (bytes kb) kid use alg
+    Ec  -> do
+        crv' <- note "crv is required for an elliptic curve key" crv
+        let c = curve crv'
+        ecPt <- ecPoint
+        unless (isNothing (sequence [n, e, p, q, dp, dq, qi])) (Left "RSA parameters can't be set for an elliptic curve key")
+        case d of
+            Nothing -> return $ EcPublicJwk (ECDSA.PublicKey c ecPt) kid use alg crv'
+            Just db -> return $ EcPrivateJwk (ECDSA.KeyPair c ecPt (os2ip (bytes db))) kid use alg crv'
   where
-    rsaPub  nb eb  = let m  = os2ip $ bytes nb
-                         ex = os2ip $ bytes eb
-                     in RSA.PublicKey (rsaSize m 1) m ex
-    rsaSize m i    = if (2 ^ (i * 8)) > m then i else rsaSize m (i+1)
-    os2mip         = maybe 0 (os2ip . bytes)
-    ecPoint xb yb  = ECC.Point (os2ip (bytes xb)) (os2ip (bytes yb))
+    checkNoEc = unless (isNothing crv) (Left "Elliptic curve type can't be set for an RSA key") >>
+       unless (isNothing (sequence [x, y])) (Left "Elliptic curve coordinates can't be set for an RSA key")
+    note err      = maybe (Left err) Right
+    os2mip        = maybe 0 (os2ip . bytes)
+    rsaPub nb eb  = let m  = os2ip $ bytes nb
+                        ex = os2ip $ bytes eb
+                    in RSA.PublicKey (rsaSize m 1) m ex
+    rsaSize m i   = if (2 ^ (i * 8)) > m then i else rsaSize m (i+1)
+    ecPoint       = do
+        xb <- note "x is required for an EC key" x
+        yb <- note "y is required for an EC key" y
+        return $ ECC.Point (os2ip (bytes xb)) (os2ip (bytes yb))
