@@ -7,7 +7,6 @@ import Test.Hspec
 import Test.HUnit hiding (Test)
 
 import Data.Aeson (decodeStrict')
-import qualified Data.ByteArray as BA
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 ()
 import Data.Word (Word64)
@@ -86,7 +85,7 @@ spec =
           fstWithRNG (decode [] (Just (JwsEncoding None)) jwt61) @?= Right (Unsecured jwt61Payload)
 
 
-signWithHeader sign hdr payload = B.intercalate "." [hdrPayload, B64.encode $ BA.convert $ sign hdrPayload]
+signWithHeader sign hdr payload = B.intercalate "." [hdrPayload, B64.encode $ sign hdrPayload]
   where
     hdrPayload = B.intercalate "." $ map B64.encode [hdr, payload]
 

@@ -68,7 +68,7 @@ encode jwks encoding msg = runEitherT $ case encoding of
         []    -> left (KeyError "No matching key found for JWE algorithm")
         (k:_) -> hoistEither =<< lift (Jwe.jwkEncode a e k msg)
   where
-    unsecuredHdr = B64.encode "{\"alg\":\"none\"}"
+    unsecuredHdr = B64.encode (BC.pack "{\"alg\":\"none\"}")
 
 
 -- | Uses the supplied keys to decode a JWT.
