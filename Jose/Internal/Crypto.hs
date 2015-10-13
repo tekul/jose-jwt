@@ -22,7 +22,8 @@ module Jose.Internal.Crypto
     )
 where
 
-import           Control.Monad.Error
+
+import           Control.Monad (when, unless)
 import           Crypto.Error
 import           Crypto.Cipher.AES
 import           Crypto.Cipher.Types
