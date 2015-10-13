@@ -1,3 +1,10 @@
+0.7
+---
+
+* Add support for AES key wrap in JWEs.
+* Support A192GCM and A192CBC-HS384 algorithms.
+* Switch to cryptonite library.
+
 0.6.2
 -----
 
@@ -53,4 +60,3 @@ the list based on the specified algorithms.
 
 * New support for JWS validation using elliptic curve algorithms.
 * Added `Jwt.encode` function which takes a JWK argument, allowing key data (currently the key ID) to be encoded in the token header.
-
