@@ -91,8 +91,9 @@ spec = do
             Object k0obj = V.head ks
         it "invalid Base64 returns an error" $ do
             let result = fromJSON (Object $ H.insert "n" (String "NotBase64**") k0obj) :: Result Jwk
-            result @?= Error "could not base64 decode bytes"
-
+            case result of
+                Error _ -> assertBool "" True
+                _       -> assertFailure "Expected an error for invalid base 64"
 
     describe "JWK Algorithm matching" $ do
         let jwks = keys s
