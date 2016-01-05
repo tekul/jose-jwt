@@ -173,8 +173,16 @@ rsaDecrypt blinder rsaKey a jweKey = case a of
 -- Dummy type to constrain Cipher type
 data C c = C
 
-initCipher :: BlockCipher c => C c -> B.ByteString -> Maybe c
-initCipher _ k = maybeCryptoError $ cipherInit k
+initCipher :: BlockCipher c => C c -> ByteString -> Either JwtError c
+initCipher _ k = mapFail (cipherInit k)
+
+-- Map CryptoFailable to JwtError
+mapFail :: CryptoFailable a -> Either JwtError a
+mapFail (CryptoPassed a) = return a
+mapFail (CryptoFailed e) = Left $ case e of
+    CryptoError_KeySizeInvalid -> KeyError "cipher key length is invalid"
+    _ -> BadCrypto
+
 
 -- | Decrypt an AES encrypted message.
 decryptPayload :: Enc        -- ^ Encryption algorithm
@@ -197,14 +205,14 @@ decryptPayload enc cek iv aad sig ct = case enc of
 
     doGCM :: BlockCipher c => C c -> Maybe ByteString
     doGCM c = do
-        cipher <- initCipher c cek
+        cipher <- rightToMaybe (initCipher c cek)
         aead <- maybeCryptoError (aeadInit AEAD_GCM cipher iv)
         aeadSimpleDecrypt aead aad ct (AuthTag $ BA.convert sig)
 
     doCBC :: (HashAlgorithm a, BlockCipher c) => C c -> a -> Int -> Maybe ByteString
     doCBC c a tagLen = do
         checkMac a tagLen
-        cipher <- initCipher c cbcEncKey
+        cipher <- rightToMaybe (initCipher c cbcEncKey)
         iv'    <- makeIV iv
         unless (B.length ct `mod` blockSize cipher == 0) Nothing
         unpad $ cbcDecrypt cipher iv' ct
@@ -237,13 +245,13 @@ encryptPayload e cek iv aad msg = case e of
 
     doGCM :: BlockCipher c => C c -> Maybe (AuthTag, ByteString)
     doGCM c = do
-        cipher <- initCipher c cek
+        cipher <- rightToMaybe (initCipher c cek)
         aead <- maybeCryptoError (aeadInit AEAD_GCM cipher iv)
         return $ aeadSimpleEncrypt aead aad msg 16
 
     doCBC :: (HashAlgorithm a, BlockCipher c) => C c -> a -> Int -> Maybe (AuthTag, ByteString)
     doCBC c a tagLen = do
-        cipher <- initCipher c cbcEncKey
+        cipher <- rightToMaybe (initCipher c cbcEncKey)
         iv'    <- makeIV iv
         let ct = cbcEncrypt cipher iv' (pad msg)
             mac = doMac a ct
@@ -271,6 +279,7 @@ pad bs = B.append bs padding
     padByte       = fromIntegral $ 16 - lastBlockSize :: Word8
     padding       = B.replicate (fromIntegral padByte) padByte
 
+
 -- Key wrapping and unwrapping functions
 
 -- | <https://tools.ietf.org/html/rfc3394#section-2.2.1>
@@ -287,7 +296,7 @@ keyWrap alg kek cek = case alg of
 
     doKeyWrap c = do
         when (l < 16 || l `mod` 8 /= 0) (Left (KeyError "Invalid content key"))
-        cipher <- maybe (Left (KeyError "cipher initialization failed")) return $ initCipher c kek
+        cipher <- initCipher c kek
         let p = toBlocks cek
             (r0, r) = foldl (doRound (ecbEncrypt cipher) 1) (iv, p) [0..5]
         Right $ B.concat (r0 : r)
@@ -322,7 +331,7 @@ keyUnwrap kek alg encK = case alg of
 
     doUnWrap c = do
         when (l < 24 || l `mod` 8 /= 0) (Left BadCrypto)
-        cipher <- maybe (Left BadCrypto) return $ initCipher c kek
+        cipher <- initCipher c kek
         let r = toBlocks encK
             (p0, p) = foldl (doRound (ecbDecrypt cipher) n) (head r, reverse (tail r)) (reverse [0..5])
         unless (p0 == iv) (Left BadCrypto)
