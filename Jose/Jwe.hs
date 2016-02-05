@@ -6,12 +6,10 @@
 --
 -- >>> import Jose.Jwe
 -- >>> import Jose.Jwa
--- >>> import Crypto.Random
--- >>> g <- drgNew
 -- >>> import Crypto.PubKey.RSA
--- >>> let ((kPub, kPr), g') = withDRG g (generate 512 65537)
--- >>> let (Right (Jwt jwt), g'') = withDRG g' (rsaEncode RSA_OAEP A128GCM kPub "secret claims")
--- >>> fst $ withDRG g'' (rsaDecode kPr jwt)
+-- >>> (kPub, kPr) <- generate 512 65537
+-- >>> Right (Jwt jwt) <- rsaEncode RSA_OAEP A128GCM kPub "secret claims"
+-- >>> rsaDecode kPr jwt
 -- Right (JweHeader {jweAlg = RSA_OAEP, jweEnc = A128GCM, jweTyp = Nothing, jweCty = Nothing, jweZip = Nothing, jweKid = Nothing},"secret claims")
 
 module Jose.Jwe
