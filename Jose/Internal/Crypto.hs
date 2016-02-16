@@ -11,6 +11,7 @@ module Jose.Internal.Crypto
     , rsaVerify
     , rsaEncrypt
     , rsaDecrypt
+    , ecSign
     , ecVerify
     , encryptPayload
     , decryptPayload
@@ -28,7 +29,7 @@ import           Crypto.Error
 import           Crypto.Cipher.AES
 import           Crypto.Cipher.Types
 import           Crypto.Hash.Algorithms
-import           Crypto.Number.Serialize (os2ip)
+import           Crypto.Number.Serialize (i2osp, os2ip)
 import qualified Crypto.PubKey.ECC.ECDSA as ECDSA
 import qualified Crypto.PubKey.RSA as RSA
 import qualified Crypto.PubKey.RSA.PKCS15 as PKCS15
@@ -101,6 +102,28 @@ rsaVerify a key msg sig = case a of
     _     -> False
   where
     go h = PKCS15.verify (Just h) key msg sig
+
+-- | Sign a message using an EC private key.
+--
+-- Returns error in case the algorithm is not an EC algorightm.
+-- A success value of Nothing indicates that signing should be
+-- attempted again with a different k random number.
+--
+-- WARNING: The underlying EC implementation is not resistant to
+-- timing attacks and might leak your private key for that reason.
+ecSign :: Integer                            -- ^ k random number
+       -> JwsAlg                             -- ^ Algorithm to use. Must be one of @ES256@, @ES384@ or @ES512@
+       -> ECDSA.PrivateKey                   -- ^ Private key to sign with
+       -> ByteString                         -- ^ Message to sign
+       -> Either JwtError (Maybe ByteString) -- ^ The signature, or Nothing if a different k needs to be generated
+ecSign k a key msg = case a of
+    ES256 -> go SHA256
+    ES384 -> go SHA384
+    ES512 -> go SHA512
+    _     -> Left . BadAlgorithm . T.pack $ "Not an EC algorithm: " ++ show a
+  where
+    go h = Right . fmap signatureEncode $ ECDSA.signWith k key h msg
+    signatureEncode ECDSA.Signature {ECDSA.sign_r = r, ECDSA.sign_s = s} = i2osp r `B.append` i2osp s
 
 -- | Verify the signature for a message using an EC public key.
 --
