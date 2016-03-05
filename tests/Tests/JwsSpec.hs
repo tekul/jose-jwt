@@ -12,6 +12,9 @@ import qualified Data.ByteString.Char8 ()
 import Data.Word (Word64)
 import Crypto.Hash.Algorithms (SHA256(..))
 import Crypto.MAC.HMAC (HMAC, hmac)
+import qualified Crypto.PubKey.ECC.ECDSA as ECDSA
+import qualified Crypto.PubKey.ECC.Generate as ECCGenerate
+import Crypto.PubKey.ECC.Types (CurveName(..), getCurveByName)
 import qualified Crypto.PubKey.RSA as RSA
 import qualified Crypto.PubKey.RSA.PKCS15 as RSAPKCS15
 import Crypto.Random (withDRG, drgNewTest)
@@ -76,6 +79,18 @@ spec =
           let Just k31 = decodeStrict' a31jwk
           fstWithRNG (decode [k31] Nothing a31) @?= fmap Jws a31decoded
 
+        it "encodes/decodes using ES256" $ do
+          keypair <- ECCGenerate.generate (getCurveByName SEC_p256k1)
+          ecRoundTrip keypair ES256 a31Payload
+
+        it "encodes/decodes using ES384" $ do
+          keypair <- ECCGenerate.generate (getCurveByName SEC_p384r1)
+          ecRoundTrip keypair ES384 a31Payload
+
+        it "encodes/decodes using ES512" $ do
+          keypair <- ECCGenerate.generate (getCurveByName SEC_p521r1)
+          ecRoundTrip keypair ES512 a31Payload
+
       context "when using an unsecured JWT" $ do
         it "returns an error if alg is unset" $
           fstWithRNG (decode [] Nothing jwt61) @?= Left (BadAlgorithm "JWT is unsecured but expected 'alg' was not 'none'")
@@ -94,6 +109,10 @@ hmacRoundTrip a msg = let Right (Jwt encoded) = Jws.hmacEncode a "asecretkey" ms
 
 rsaRoundTrip a msg = let Right (Jwt encoded) = fstWithRNG (Jws.rsaEncode a rsaPrivateKey msg)
                      in  Jws.rsaDecode rsaPublicKey encoded @?= Right (defJwsHdr {jwsAlg = a}, msg)
+
+ecRoundTrip (publicKey, privateKey) a msg =
+  let Right (Jwt encoded) = fstWithRNG (Jws.ecEncode a privateKey msg)
+  in  Jws.ecDecode publicKey encoded @?= Right (defJwsHdr {jwsAlg = a}, msg)
 
 -- Unsecured JWT from section 6.1
 jwt61 = "eyJhbGciOiJub25lIn0.eyJpc3MiOiJqb2UiLA0KICJleHAiOjEzMDA4MTkzODAsDQogImh0dHA6Ly9leGFtcGxlLmNvbS9pc19yb290Ijp0cnVlfQ."

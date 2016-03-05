@@ -105,5 +105,6 @@ Benchmark bench-jwt
                     , base
                     , bytestring
                     , criterion
+                    , cryptonite
 
   Ghc-Options:        -Wall -O2

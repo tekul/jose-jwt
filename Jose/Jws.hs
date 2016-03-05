@@ -20,13 +20,16 @@ module Jose.Jws
     , hmacDecode
     , rsaEncode
     , rsaDecode
+    , ecEncode
     , ecDecode
     )
 where
 
 import Control.Applicative
 import Control.Monad (unless)
+import Crypto.Number.Generate (generateBetween)
 import qualified Crypto.PubKey.ECC.ECDSA as ECDSA
+import qualified Crypto.PubKey.ECC.Types as ECC
 import Crypto.PubKey.RSA (PrivateKey(..), PublicKey(..), generateBlinder)
 import Crypto.Random (MonadRandom)
 import Data.ByteString (ByteString)
@@ -42,15 +45,20 @@ import Jose.Jwk (Jwk (..))
 -- | Create a JWS signed with a JWK.
 -- The key and algorithm must be consistent or an error
 -- will be returned.
+--
+-- WARNING: The underlying EC implementation is not resistant to
+-- timing attacks and might leak your private key for that reason.
+-- Use RSA or hmac signatures to avoid this problem.
 jwkEncode :: MonadRandom m
           => JwsAlg                          -- ^ The algorithm to use
           -> Jwk                             -- ^ The key to sign with
           -> Payload                         -- ^ The public JWT claims
           -> m (Either JwtError Jwt)         -- ^ The encoded token, if successful
 jwkEncode a key payload = case key of
-    RsaPrivateJwk kPr kid _ _ -> rsaEncodeInternal a kPr (sigTarget a kid payload)
-    SymmetricJwk  k   kid _ _ -> return $ hmacEncodeInternal a k (sigTarget a kid payload)
-    _                         -> return $ Left $ BadAlgorithm "EC signing is not supported"
+    RsaPrivateJwk kPr kid _ _   -> rsaEncodeInternal a kPr (sigTarget a kid payload)
+    SymmetricJwk  k   kid _ _   -> return $ hmacEncodeInternal a k (sigTarget a kid payload)
+    EcPrivateJwk  k   kid _ _ _ -> ecEncodeInternal a (ECDSA.toPrivateKey k) (sigTarget a kid payload)
+    _                           -> return $ Left $ BadAlgorithm "Not a signing key."
 
 -- | Create a JWS with an HMAC for validation.
 hmacEncode :: JwsAlg       -- ^ The MAC algorithm to use
@@ -98,8 +106,33 @@ rsaDecode :: PublicKey            -- ^ The key to check the signature with
           -> Either JwtError Jws  -- ^ The decoded token if successful
 rsaDecode key = decode (`rsaVerify` key)
 
+-- | Creates a JWS with an EC signature.
+--
+-- WARNING: The underlying EC implementation is not resistant to
+-- timing attacks and might leak your private key for that reason.
+ecEncode :: MonadRandom m
+         => JwsAlg                           -- ^ The EC algorithm to use
+         -> ECDSA.PrivateKey                 -- ^ The key to sign with
+         -> ByteString                       -- ^ The public JWT claims (token content)
+         -> m (Either JwtError Jwt)          -- ^ The encoded JWS token
+ecEncode a pk payload = ecEncodeInternal a pk (sigTarget a Nothing (Claims payload))
 
--- | Decode and validate an EC signed JWS
+ecEncodeInternal :: MonadRandom m
+                 => JwsAlg
+                 -> ECDSA.PrivateKey
+                 -> ByteString
+                 -> m (Either JwtError Jwt)
+ecEncodeInternal a pk st = sign
+  where
+    sign = do
+      k <- generateBetween 1 (n - 1)
+      case ecSign k a pk st of
+        Right Nothing -> sign
+        Right (Just sig) -> return . Right . Jwt $ B.concat [st, ".", B64.encode sig]
+        Left e    -> return (Left e)
+    n = ECC.ecc_n . ECC.common_curve $ ECDSA.private_curve pk
+
+-- | Decode and validate an EC signed JWS.
 ecDecode :: ECDSA.PublicKey       -- ^ The key to check the signature with
          -> ByteString            -- ^ The encoded JWS
          -> Either JwtError Jws   -- ^ The decoded token if successful
