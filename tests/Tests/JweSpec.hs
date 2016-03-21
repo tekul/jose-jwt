@@ -6,7 +6,6 @@ module Tests.JweSpec where
 import Control.Applicative
 import Data.Aeson (decodeStrict')
 import Data.Bits (xor)
-import Data.Maybe (fromJust)
 import Data.Word (Word8, Word64)
 import qualified Data.ByteArray as BA
 import qualified Data.ByteString as B
@@ -133,7 +132,7 @@ spec =
       it "padded msg is always a multiple of 16" $ property $
         \s -> B.length (pad (B.pack s)) `mod` 16 == 0
       it "unpad is the inverse of pad" $ property $
-        \s -> let msg = B.pack s in (fromJust . unpad . pad) msg == msg
+        \s -> let msg = B.pack s in (unpad . pad) msg == Just msg
       it "jwe decode/decode returns the original payload" $ property jweRoundTrip
 
     context "miscellaneous tests" $ do
@@ -148,7 +147,7 @@ spec =
 jweRoundTrip :: RNG -> JWEAlgs -> [Word8] -> Bool
 jweRoundTrip g (JWEAlgs a e) msg = encodeDecode == Right (Jwe (defJweHdr {jweAlg = a, jweEnc = e}, bs))
   where
-    jwks = map (fromJust . decodeStrict') [a1jwk, a2jwk, a3jwk]
+    jwks = [a1jwk, a2jwk, a3jwk] >>= \j -> let Just jwk = decodeStrict' j in [jwk]
     bs = B.pack msg
     encodeDecode = fst (withDRG blinderRNG (decode jwks Nothing encoded))
     Right encoded = unJwt <$> fst (withDRG g (encode jwks (JweEncoding a e) (Claims bs)))

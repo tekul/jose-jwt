@@ -13,7 +13,6 @@ where
 import Control.Applicative (pure)
 import Data.Aeson
 import Data.Text (Text)
-import Data.Maybe (fromJust)
 import Data.Tuple (swap)
 
 -- | General representation of the @alg@ JWT header value.
@@ -35,7 +34,7 @@ algs :: [(Text, Alg)]
 algs = [("none", Signed None), ("HS256", Signed HS256), ("HS384", Signed HS384), ("HS512", Signed HS512), ("RS256", Signed RS256), ("RS384", Signed RS384), ("RS512", Signed RS512), ("ES256", Signed ES256), ("ES384", Signed ES384), ("ES512", Signed ES512), ("RSA1_5", Encrypted RSA1_5), ("RSA-OAEP", Encrypted RSA_OAEP), ("A128KW", Encrypted A128KW), ("A192KW", Encrypted A192KW), ("A256KW", Encrypted A256KW)]
 
 algName :: Alg -> Text
-algName a = fromJust $ lookup a algNames
+algName a = let Just n = lookup a algNames in n
 
 algNames :: [(Alg, Text)]
 algNames = map swap algs
@@ -44,7 +43,7 @@ encs :: [(Text, Enc)]
 encs = [("A128CBC-HS256", A128CBC_HS256), ("A256CBC-HS512", A256CBC_HS512), ("A192CBC-HS384", A192CBC_HS384), ("A128GCM", A128GCM), ("A192GCM", A192GCM), ("A256GCM", A256GCM)]
 
 encName :: Enc -> Text
-encName e = fromJust $ lookup e encNames
+encName e = let Just n = lookup e encNames in n
 
 encNames :: [(Enc, Text)]
 encNames = map swap encs

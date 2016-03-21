@@ -25,7 +25,7 @@ module Jose.Jwt
     )
 where
 
-import Control.Monad (when, unless, liftM)
+import Control.Monad (msum, when, unless, liftM)
 import Control.Monad.Trans (lift)
 import Control.Monad.Trans.Either
 import qualified Crypto.PubKey.ECC.ECDSA as ECDSA
@@ -33,8 +33,7 @@ import Crypto.PubKey.RSA (PrivateKey(..))
 import Crypto.Random (MonadRandom)
 import Data.Aeson (decodeStrict')
 import Data.ByteString (ByteString)
-import Data.List (find)
-import Data.Maybe (fromJust, isJust, isNothing)
+import Data.Maybe (isNothing)
 import qualified Data.ByteString.Char8 as BC
 
 import qualified Jose.Internal.Base64 as B64
@@ -102,7 +101,9 @@ decode keySet encoding jwt = runEitherT $ do
         JweH h     -> do
             unless (isNothing encoding || encoding == Just (JweEncoding (jweAlg h) (jweEnc h))) $ left (BadAlgorithm "Expected encoding doesn't match JWE header")
             mapM decodeWithJwe ks
-    maybe (left $ KeyError "None of the keys was able to decode the JWT") (return . fromJust) $ find isJust decodings
+    case msum decodings of
+        Nothing  -> left $ KeyError "None of the keys was able to decode the JWT"
+        Just jwt -> return jwt
   where
     decodeWithJws :: MonadRandom m => Jwk -> EitherT JwtError m (Maybe JwtContent)
     decodeWithJws k = either (const $ return Nothing) (return . Just . Jws) $ case k of
