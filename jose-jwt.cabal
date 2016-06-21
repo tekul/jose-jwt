@@ -30,7 +30,7 @@ Flag doctest
 
 Source-Repository head
   Type:             git
-  Location:         git://github.com/tekul/jose-jwt.git
+  Location:         https://github.com/tekul/jose-jwt.git
 
 Library
   Default-Language:   Haskell2010
