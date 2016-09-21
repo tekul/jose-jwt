@@ -1,3 +1,11 @@
+
+0.7.1
+---
+
+* Update cryptonite version to 0.19 to avoid security issues
+* Fix broken benchmark code
+* Better error message for invalid key length when using AES keywrap
+
 0.7
 ---
 
