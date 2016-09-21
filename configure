@@ -1,3 +1,0 @@
-#! /bin/sh
-
-cabal configure --enable-tests --enable-library-coverage --enable-library-profiling --enable-executable-profiling
