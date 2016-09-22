@@ -103,7 +103,7 @@ decode keySet encoding jwt = runEitherT $ do
             mapM decodeWithJwe ks
     case msum decodings of
         Nothing  -> left $ KeyError "None of the keys was able to decode the JWT"
-        Just jwt -> return jwt
+        Just jwtContent -> return jwtContent
   where
     decodeWithJws :: MonadRandom m => Jwk -> EitherT JwtError m (Maybe JwtContent)
     decodeWithJws k = either (const $ return Nothing) (return . Just . Jws) $ case k of
