@@ -1,6 +1,10 @@
+0.7.2
+-----
+
+* Remove test dependency on aeson-qq
 
 0.7.1
----
+-----
 
 * Update cryptonite version to 0.19 to avoid security issues
 * Fix broken benchmark code
