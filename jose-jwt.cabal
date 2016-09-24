@@ -22,6 +22,7 @@ Category:           JSON, Cryptography
 
 Extra-Source-Files:
     CHANGELOG.md
+    tests/*.json
 
 -- disable doctests with -f-doctest
 Flag doctest
@@ -106,4 +107,4 @@ Benchmark bench-jwt
                     , criterion
                     , cryptonite
 
-  Ghc-Options:        -Wall -O2
+  Ghc-Options:        -Wall -fno-warn-missing-signatures
