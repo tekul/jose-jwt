@@ -1,3 +1,8 @@
+0.7.3
+-----
+
+* Add JSON test data to extra-source-files.
+
 0.7.2
 -----
 
