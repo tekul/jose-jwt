@@ -147,7 +147,7 @@ spec =
 jweRoundTrip :: RNG -> JWEAlgs -> [Word8] -> Bool
 jweRoundTrip g (JWEAlgs a e) msg = encodeDecode == Right (Jwe (defJweHdr {jweAlg = a, jweEnc = e}, bs))
   where
-    jwks = [a1jwk, a2jwk, a3jwk] >>= \j -> let Just jwk = decodeStrict' j in [jwk]
+    jwks = [a1jwk, a2jwk, a3jwk, aes192jwk, aes256jwk] >>= \j -> let Just jwk = decodeStrict' j in [jwk]
     bs = B.pack msg
     encodeDecode = fst (withDRG blinderRNG (decode jwks Nothing encoded))
     Right encoded = unJwt <$> fst (withDRG g (encode jwks (JweEncoding a e) (Claims bs)))
@@ -241,6 +241,11 @@ a2seed = extractPKCS15Seed a2PrivKey a2jweKey
 a3Payload = a2Payload
 
 a3jwk = "{\"kty\":\"oct\", \"k\":\"GawgguFyGrWKav7AX4VKUg\"}"
+
+-- We need keys that are valid for AES192 and AES256 for quickcheck tests
+aes192jwk = "{\"kty\":\"oct\", \"k\":\"FatNm7ez26tyPGsXdaqhYHtvThX0jSAA\"}"
+aes256jwk = "{\"kty\":\"oct\", \"k\":\"1MeiHdxK8CQBsmjgOM8SCxg06MTjFzG7sFa7EnDCJzo\"}"
+
 
 a3cek = B.pack [4, 211, 31, 197, 84, 157, 252, 254, 11, 100, 157, 250, 63, 170, 106, 206, 107, 124, 212, 45, 111, 107, 9, 219, 200, 177, 0, 240, 143, 156, 44, 207]
 

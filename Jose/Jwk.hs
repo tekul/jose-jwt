@@ -28,6 +28,7 @@ import           Crypto.Number.Serialize
 import           Data.Aeson (genericToJSON, Value(..), FromJSON(..), ToJSON(..), withText)
 import           Data.Aeson.Types (Parser, Options (..), defaultOptions)
 import           Data.ByteString (ByteString)
+import qualified Data.ByteString as B
 import           Data.Maybe (isNothing)
 import           Data.Text (Text)
 import qualified Data.Text.Encoding as TE
@@ -126,9 +127,9 @@ canDecodeJwe hdr jwk = jwkUse jwk /= Just Sig &&
     case (jweAlg hdr, jwk) of
         (RSA1_5,   RsaPrivateJwk {}) -> True
         (RSA_OAEP, RsaPrivateJwk {}) -> True
-        (A128KW,   SymmetricJwk {})  -> True
-        (A192KW,   SymmetricJwk {})  -> True
-        (A256KW,   SymmetricJwk {})  -> True
+        (A128KW,   SymmetricJwk k _ _ _) -> B.length k == 16
+        (A192KW,   SymmetricJwk k _ _ _) -> B.length k == 24
+        (A256KW,   SymmetricJwk k _ _ _) -> B.length k == 32
         _                            -> False
 
 canEncodeJwe :: JweAlg -> Jwk -> Bool
@@ -139,9 +140,9 @@ canEncodeJwe a jwk = jwkUse jwk /= Just Sig &&
         (RSA_OAEP, RsaPublicJwk {})  -> True
         (RSA1_5,   RsaPrivateJwk {}) -> True
         (RSA_OAEP, RsaPrivateJwk {}) -> True
-        (A128KW,   SymmetricJwk {})  -> True
-        (A192KW,   SymmetricJwk {})  -> True
-        (A256KW,   SymmetricJwk {})  -> True
+        (A128KW,   SymmetricJwk k _ _ _) -> B.length k == 16
+        (A192KW,   SymmetricJwk k _ _ _) -> B.length k == 24
+        (A256KW,   SymmetricJwk k _ _ _) -> B.length k == 32
         _                            -> False
 
 keyIdCompatible :: Maybe KeyId -> Jwk -> Bool
