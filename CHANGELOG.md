@@ -1,3 +1,9 @@
+0.7.4
+-----
+
+* Stricter checking of AES key lengths when looking for a valid JWK to encode/decode an AES-KW JWT.
+* Update cryptonite version to 0.21 (includes related AES key-length checking).
+
 0.7.3
 -----
 
