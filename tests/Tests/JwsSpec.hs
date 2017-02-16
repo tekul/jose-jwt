@@ -77,11 +77,11 @@ spec =
           fstWithRNG (decode [k31] Nothing a31) @?= fmap Jws a31decoded
 
       context "when using an unsecured JWT" $ do
-        it "returns an error if alg is unset" $
+        it "returns an error if chosen alg is unset" $
           fstWithRNG (decode [] Nothing jwt61) @?= Left (BadAlgorithm "JWT is unsecured but expected 'alg' was not 'none'")
-        it "returns an error if alg is is not 'none'" $
+        it "returns an error if chosen alg is not 'none'" $
           fstWithRNG (decode [] (Just (JwsEncoding RS256)) jwt61) @?= Left (BadAlgorithm "JWT is unsecured but expected 'alg' was not 'none'")
-        it "decodes the JWT to the expected header and payload" $
+        it "decodes the JWT to the expected header and payload if chosen alg is 'none'" $
           fstWithRNG (decode [] (Just (JwsEncoding None)) jwt61) @?= Right (Unsecured jwt61Payload)
 
 
