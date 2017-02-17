@@ -26,7 +26,7 @@ where
 import           Control.Monad (when, unless)
 import           Crypto.Error
 import           Crypto.Cipher.AES
-import           Crypto.Cipher.Types
+import           Crypto.Cipher.Types hiding (IV)
 import           Crypto.Hash.Algorithms
 import           Crypto.Number.Serialize (os2ip)
 import qualified Crypto.PubKey.ECC.ECDSA as ECDSA
@@ -46,6 +46,7 @@ import           Data.Word (Word64, Word8)
 
 import           Jose.Jwa
 import           Jose.Types (JwtError(..))
+import           Jose.Internal.Parser (IV(..), Tag(..))
 
 -- | Sign a message with an HMAC key.
 hmacSign :: JwsAlg      -- ^ HMAC algorithm to use
@@ -186,44 +187,45 @@ mapFail (CryptoFailed e) = Left $ case e of
 
 -- | Decrypt an AES encrypted message.
 decryptPayload :: Enc        -- ^ Encryption algorithm
-               -> ByteString -- ^ Content management key
-               -> ByteString -- ^ IV
+               -> ByteString -- ^ Content encryption key
+               -> IV         -- ^ IV
                -> ByteString -- ^ Additional authentication data
-               -> AuthTag    -- ^ The integrity protection value to be checked
+               -> Tag        -- ^ The integrity protection value to be checked
                -> ByteString -- ^ The encrypted JWT payload
                -> Maybe ByteString
-decryptPayload enc cek iv aad sig ct = case enc of
-    A128GCM       -> doGCM (C :: C AES128)
-    A192GCM       -> doGCM (C :: C AES192)
-    A256GCM       -> doGCM (C :: C AES256)
-    A128CBC_HS256 -> doCBC (C :: C AES128) SHA256 16
-    A192CBC_HS384 -> doCBC (C :: C AES192) SHA384 24
-    A256CBC_HS512 -> doCBC (C :: C AES256) SHA512 32
+decryptPayload enc cek iv_ aad tag_ ct = case (enc, iv_, tag_) of
+    (A128GCM, IV12 b, Tag16 t) -> doGCM (C :: C AES128) b t
+    (A192GCM, IV12 b, Tag16 t) -> doGCM (C :: C AES192) b t
+    (A256GCM, IV12 b, Tag16 t) -> doGCM (C :: C AES256) b t
+    (A128CBC_HS256, IV16 b, Tag16 t) -> doCBC (C :: C AES128) b t SHA256 16
+    (A192CBC_HS384, IV16 b, Tag24 t) -> doCBC (C :: C AES192) b t SHA384 24
+    (A256CBC_HS512, IV16 b, Tag32 t) -> doCBC (C :: C AES256) b t SHA512 32
+    _ -> Nothing -- This shouldn't be possible if the JWT was parsed first
   where
     (cbcMacKey, cbcEncKey) = B.splitAt (B.length cek `div` 2) cek
     al = fromIntegral (B.length aad) * 8 :: Word64
 
-    doGCM :: BlockCipher c => C c -> Maybe ByteString
-    doGCM c = do
+    doGCM :: BlockCipher c => C c -> ByteString -> ByteString -> Maybe ByteString
+    doGCM c iv tag = do
         cipher <- rightToMaybe (initCipher c cek)
         aead <- maybeCryptoError (aeadInit AEAD_GCM cipher iv)
-        aeadSimpleDecrypt aead aad ct (AuthTag $ BA.convert sig)
+        aeadSimpleDecrypt aead aad ct (AuthTag $ BA.convert tag)
 
-    doCBC :: (HashAlgorithm a, BlockCipher c) => C c -> a -> Int -> Maybe ByteString
-    doCBC c a tagLen = do
-        checkMac a tagLen
+    doCBC :: (HashAlgorithm a, BlockCipher c) => C c -> ByteString -> ByteString -> a -> Int -> Maybe ByteString
+    doCBC c iv tag a tagLen = do
+        checkMac a tag iv tagLen
         cipher <- rightToMaybe (initCipher c cbcEncKey)
         iv'    <- makeIV iv
         unless (B.length ct `mod` blockSize cipher == 0) Nothing
         unpad $ cbcDecrypt cipher iv' ct
 
-    checkMac :: HashAlgorithm a => a -> Int -> Maybe ()
-    checkMac a l = do
-        let mac = BA.take l $ BA.convert $ doMac a :: BA.Bytes
-        unless (sig `BA.constEq` mac) Nothing
+    checkMac :: HashAlgorithm a => a -> ByteString -> ByteString -> Int -> Maybe ()
+    checkMac a tag iv l = do
+        let mac = BA.take l $ BA.convert $ doMac a iv :: BA.Bytes
+        unless (tag `BA.constEq` mac) Nothing
 
-    doMac :: HashAlgorithm a => a -> HMAC a
-    doMac _ = hmac cbcMacKey $ B.concat [aad, iv, ct, Serialize.encode al]
+    doMac :: HashAlgorithm a => a -> ByteString -> HMAC a
+    doMac _ iv = hmac cbcMacKey $ B.concat [aad, iv, ct, Serialize.encode al]
 
 -- | Encrypt a message using AES.
 encryptPayload :: Enc                   -- ^ Encryption algorithm

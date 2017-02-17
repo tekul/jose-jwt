@@ -25,6 +25,7 @@ import qualified Jose.Jwe as Jwe
 import Jose.Jwa
 import qualified Jose.Jwk as Jwk
 import Jose.Internal.Crypto
+import Jose.Internal.Parser(Tag(..), IV(..))
 import qualified Jose.Internal.Base64 as B64
 
 --------------------------------------------------------------------------------
@@ -77,6 +78,13 @@ spec =
             Right ct = B64.decode payload
         withBlinder (Jwe.rsaDecode a1PrivKey (B.intercalate "." [hdr, ek, iv, B64.encode (B.tail ct), tag])) @?= Left BadCrypto
 
+      it "a truncated auth tag returns BadCrypto" $ do
+        let [hdr, ek, iv, payload, tag] = BC.split '.' a1
+            Right tagBytes = B64.decode tag
+            badTag = B64.encode $ BC.take 2 tagBytes
+        withBlinder (Jwe.rsaDecode a1PrivKey (B.intercalate "." [hdr, ek, iv, payload, badTag])) @?= Left BadCrypto
+
+
       it "a truncated IV returns BadCrypto" $ do
         let (fore, aft) = BC.breakSubstring (B64.encode a1iv) a1
             newIv = B64.encode (B.tail a1iv)
@@ -91,14 +99,14 @@ spec =
         withDRG (RNG a2seed) (rsaEncrypt a2PubKey RSA1_5 a2cek) @?= (Right a2jweKey, RNG "")
 
       it "encrypts the payload to the expected ciphertext and authentication tag" $
-        encryptPayload A128CBC_HS256 a2cek a2iv aad a2Payload @?= Just (a2Tag, a2Ciphertext)
+        encryptPayload A128CBC_HS256 a2cek a2iv aad a2Payload @?= Just (AuthTag (BA.convert a2Tag), a2Ciphertext)
 
       it "encodes the payload to the expected JWT" $
         withDRG (RNG $ B.concat [a2cek, a2iv, a2seed])
             (Jwe.rsaEncode RSA1_5 A128CBC_HS256 a2PubKey a2Payload) @?= (Right (Jwt a2), RNG "")
 
       it "decrypts the ciphertext to the correct payload" $
-        decryptPayload A128CBC_HS256 a2cek a2iv aad a2Tag a2Ciphertext @?= Just a2Payload
+        decryptPayload A128CBC_HS256 a2cek (IV16 a2iv) aad (Tag16 a2Tag) a2Ciphertext @?= Just a2Payload
 
       it "decodes the JWT to the expected header and payload" $
         withBlinder (Jwe.rsaDecode a2PrivKey a2) @?= Right (a2Header, a2Payload)
@@ -156,7 +164,7 @@ withBlinder = fst . withDRG blinderRNG
 
 -- A decidedly non-random, random number generator which allows specific
 -- sequences of bytes to be supplied which match the JWE test data.
-data RNG = RNG B.ByteString deriving (Eq, Show)
+newtype RNG = RNG B.ByteString deriving (Eq, Show)
 
 genBytes :: BA.ByteArray ba => Int -> RNG -> (ba, RNG)
 genBytes 0 g = (BA.empty, g)
@@ -221,7 +229,7 @@ a2iv = B.pack [3, 22, 60, 12, 43, 67, 104, 105, 108, 108, 105, 99, 111, 116, 104
 
 a2Ciphertext = B.pack [40, 57, 83, 181, 119, 33, 133, 148, 198, 185, 243, 24, 152, 230, 6, 75, 129, 223, 127, 19, 210, 82, 183, 230, 168, 33, 215, 104, 143, 112, 56, 102]
 
-a2Tag = AuthTag $ BA.pack [246, 17, 244, 190, 4, 95, 98, 3, 231, 0, 115, 157, 242, 203, 100, 191]
+a2Tag = B.pack [246, 17, 244, 190, 4, 95, 98, 3, 231, 0, 115, 157, 242, 203, 100, 191]
 
 Right a2jweKey = B64.decode $ BC.pack "UGhIOguC7IuEvf_NPVaXsGMoLOmwvc1GyqlIKOK1nN94nHPoltGRhWhw7Zx0-kFm1NJn8LE9XShH59_i8J0PH5ZZyNfGy2xGdULU7sHNF6Gp2vPLgNZ__deLKxGHZ7PcHALUzoOegEI-8E66jX2E4zyJKx-YxzZIItRzC5hlRirb6Y5Cl_p-ko3YvkkysZIFNPccxRU7qve1WYPxqbb2Yw8kZqa2rMWI5ng8OtvzlV7elprCbuPhcCdZ6XDP0_F8rkXds2vE4X-ncOIM8hAYHHi29NX0mcKiRaD0-D-ljQTP-cFPgwCp6X-nZZd9OHBv-B3oWh2TbqmScqXMR4gp_A"
 

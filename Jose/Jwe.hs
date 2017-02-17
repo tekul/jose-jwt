@@ -20,7 +20,6 @@ module Jose.Jwe
     )
 where
 
-import Control.Monad (unless)
 import Control.Monad.Trans (lift)
 import Control.Monad.Trans.Either
 import Crypto.Cipher.Types (AuthTag(..))
@@ -29,12 +28,12 @@ import Crypto.Random (MonadRandom)
 import qualified Data.ByteArray as BA
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
-import qualified Data.ByteString.Char8 as BC
 import Jose.Types
 import qualified Jose.Internal.Base64 as B64
 import Jose.Internal.Crypto
 import Jose.Jwa
 import Jose.Jwk
+import qualified Jose.Internal.Parser as P
 
 -- | Create a JWE using a JWK.
 -- The key and algorithms must be consistent or an error
@@ -57,6 +56,7 @@ jwkEncode a e jwk payload = runEitherT $ case jwk of
         Claims c       -> (Nothing, c)
         Nested (Jwt b) -> (Just "JWT", b)
 
+
 -- | Try to decode a JWE using a JWK.
 -- If the key type does not match the content encoding algorithm,
 -- an error will be returned.
@@ -72,36 +72,26 @@ jwkDecode jwk jwt = runEitherT $ case jwk of
     SymmetricJwk kb   _ _ _ -> fmap Jwe (doDecode (keyUnwrap kb) jwt)
     _                       -> left $ KeyError "JWK cannot decode a JWE"
 
+
 doDecode :: MonadRandom m
     => (JweAlg -> ByteString -> Either JwtError ByteString)
     -> ByteString
     -> EitherT JwtError m Jwe
 doDecode decodeCek jwt = do
-    checkDots
-    let components = BC.split '.' jwt
-    let aad = head components
-    [h, ek, providedIv, payload, sig] <- mapM B64.decode components
-    hdr <- case parseHeader h of
-        Right (JweH jweHdr) -> return jweHdr
-        Right (JwsH _)      -> left (BadHeader "Header is for a JWS")
-        Right UnsecuredH    -> left (BadHeader "Header is for an unsecured JWT")
-        Left e              -> left e
-    let alg = jweAlg hdr
-        enc = jweEnc hdr
-    (dummyCek, dummyIv) <- lift $ generateCmkAndIV enc
-    let decryptedCek = either (const dummyCek) id $ decodeCek alg ek
-        cek = if B.length decryptedCek == B.length dummyCek
-                 then decryptedCek
-                 else dummyCek
-        iv  = if B.length providedIv == B.length dummyIv
-                 then providedIv
-                 else dummyIv
-        authTag = AuthTag $ BA.convert sig
-    claims <- maybe (left BadCrypto) return $ decryptPayload enc cek iv aad authTag payload
-    return (hdr, claims)
+    encodedJwt <- hoistEither (P.parseJwt jwt)
+    case encodedJwt of
+        P.DecodableJwe hdr (P.EncryptedCEK ek) iv (P.Payload payload) tag (P.AAD aad) -> do
+            let alg = jweAlg hdr
+                enc = jweEnc hdr
+            (dummyCek, _) <- lift $ generateCmkAndIV enc
+            let decryptedCek = either (const dummyCek) id $ decodeCek alg ek
+                cek = if B.length decryptedCek == B.length dummyCek
+                        then decryptedCek
+                        else dummyCek
+            claims <- maybe (left BadCrypto) return $ decryptPayload enc cek iv aad tag payload
+            return (hdr, claims)
 
-  where
-    checkDots = unless (BC.count '.' jwt == 4) $ left (BadDots 4)
+        _ -> left (BadHeader "Content is not a JWE")
 
 
 doEncode :: MonadRandom m
