@@ -25,17 +25,16 @@ module Jose.Jws
 where
 
 import Control.Applicative
-import Control.Monad (unless)
 import qualified Crypto.PubKey.ECC.ECDSA as ECDSA
 import Crypto.PubKey.RSA (PrivateKey(..), PublicKey(..), generateBlinder)
 import Crypto.Random (MonadRandom)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
-import qualified Data.ByteString.Char8 as BC
 
 import Jose.Types
 import qualified Jose.Internal.Base64 as B64
 import Jose.Internal.Crypto
+import qualified Jose.Internal.Parser as P
 import Jose.Jwa
 import Jose.Jwk (Jwk (..))
 
@@ -63,7 +62,7 @@ hmacEncodeInternal :: JwsAlg
                    -> ByteString
                    -> ByteString
                    -> Either JwtError Jwt
-hmacEncodeInternal a key st = Jwt <$> (\mac -> B.concat [st, ".", B64.encode mac]) <$> hmacSign a key st
+hmacEncodeInternal a key st = Jwt . (\mac -> B.concat [st, ".", B64.encode mac]) <$> hmacSign a key st
 
 -- | Decodes and validates an HMAC signed JWS.
 hmacDecode :: ByteString          -- ^ The HMAC key
@@ -115,20 +114,13 @@ sigTarget a kid payload = B.intercalate "." $ map B64.encode [encodeHeader hdr, 
 
 type JwsVerifier = JwsAlg -> ByteString -> ByteString -> Bool
 
+
 decode :: JwsVerifier -> ByteString -> Either JwtError Jws
 decode verify jwt = do
-    unless (BC.count '.' jwt == 2) $ Left $ BadDots 2
-    let (hdrPayload, sig) = spanEndDot jwt
-    sigBytes <- B64.decode sig
-    [h, payload] <- mapM B64.decode $ BC.split '.' hdrPayload
-    hdr <- case parseHeader h of
-        Right (JwsH jwsHdr) -> return jwsHdr
-        Right (JweH _)      -> Left (BadHeader "Header is for a JWE")
-        Right UnsecuredH    -> Left (BadHeader "Header is for an unsecured JWT")
-        Left e              -> Left e
-    if verify (jwsAlg hdr) hdrPayload sigBytes
-      then Right (hdr, payload)
-      else Left BadSignature
-  where
-    spanEndDot bs = let (toDot, end) = BC.spanEnd (/= '.') bs
-                    in  (B.init toDot, end)
+    decodableJwt <- P.parseJwt jwt
+    case decodableJwt of
+        P.DecodableJws hdr (P.Payload p) (P.Sig sig) (P.SigTarget signed) ->
+          if verify (jwsAlg hdr) signed sig
+              then Right (hdr, p)
+              else Left BadSignature
+        _ -> Left (BadHeader "JWT is not a JWS")

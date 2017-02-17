@@ -11,6 +11,8 @@ module Jose.Internal.Parser
     , IV (..)
     , Tag (..)
     , AAD (..)
+    , Sig (..)
+    , SigTarget (..)
     )
 where
 
@@ -29,7 +31,7 @@ import           Jose.Types (JwtError(..), JwtHeader(..), JwsHeader(..), JweHead
 
 data DecodableJwt
      = Unsecured ByteString
-     | DecodableJws JwsHeader Payload
+     | DecodableJws JwsHeader Payload Sig SigTarget
      | DecodableJwe JweHeader EncryptedCEK IV Payload Tag AAD
 
 
@@ -44,6 +46,8 @@ data IV
     | IV16 ByteString
 
 
+newtype Sig = Sig ByteString
+newtype SigTarget = SigTarget ByteString
 newtype AAD = AAD ByteString
 newtype Payload = Payload ByteString
 newtype EncryptedCEK = EncryptedCEK ByteString
@@ -58,7 +62,11 @@ jwt = do
     (hdr, raw) <- jwtHeader
     case hdr of
         UnsecuredH -> Unsecured <$> base64Chunk
-        JwsH h -> jws h
+        JwsH h -> do
+            payloadB64 <- PC.takeWhile ('.' /=) <* PC.char '.'
+            payload <- b64Decode payloadB64
+            s <- sig (jwsAlg h)
+            pure $ DecodableJws h (Payload payload) s (SigTarget (B.concat [raw, ".", payloadB64]))
         JweH h ->
             DecodableJwe
                 <$> pure h
@@ -69,8 +77,10 @@ jwt = do
                 <*> pure (AAD raw)
 
 
-jws :: JwsHeader -> Parser DecodableJwt
-jws _ = undefined
+sig :: JwsAlg -> Parser Sig
+sig _ = do
+    t <- P.takeByteString >>= b64Decode
+    pure (Sig t)
 
 
 authTag :: Enc -> Parser Tag
