@@ -25,7 +25,7 @@ module Jose.Jwt
     )
 where
 
-import Control.Monad (msum, when, unless, liftM)
+import Control.Monad (msum, when, unless)
 import Control.Monad.Trans (lift)
 import Control.Monad.Trans.Either
 import qualified Crypto.PubKey.ECC.ECDSA as ECDSA
@@ -37,6 +37,7 @@ import Data.Maybe (isNothing)
 import qualified Data.ByteString.Char8 as BC
 
 import qualified Jose.Internal.Base64 as B64
+import qualified Jose.Internal.Parser as P
 import Jose.Types
 import Jose.Jwk
 import Jose.Jwa
@@ -85,21 +86,20 @@ decode :: MonadRandom m
     -> ByteString                      -- ^ The encoded JWT
     -> m (Either JwtError JwtContent)  -- ^ The decoded JWT payload, if successful
 decode keySet encoding jwt = runEitherT $ do
-    let components = BC.split '.' jwt
-    when (length components < 3) $ left $ BadDots 2
-    hdr <- B64.decode (head components) >>= hoistEither . parseHeader
-    ks  <- findDecodingKeys hdr keySet
-    -- Now we have one or more suitable keys (or none for the unsecured case).
-    -- Try each in turn until successful
-    decodings <- case hdr of
-        UnsecuredH -> do
-            unless (encoding == Just (JwsEncoding None)) $ left (BadAlgorithm "JWT is unsecured but expected 'alg' was not 'none'")
-            B64.decode (components !! 1) >>= \p -> return [Just (Unsecured p)]
-        JwsH h     -> do
-            unless (isNothing encoding || encoding == Just (JwsEncoding (jwsAlg h))) $ left (BadAlgorithm "Expected 'alg' doesn't match JWS header")
+    decodableJwt <- hoistEither (P.parseJwt jwt)
+
+    decodings <- case (decodableJwt, encoding) of
+        (P.Unsecured p, Just (JwsEncoding None)) -> return [Just (Unsecured p)]
+        (P.Unsecured _, _) -> left (BadAlgorithm "JWT is unsecured but expected 'alg' was not 'none'")
+        (P.DecodableJws hdr _ _ _, e) -> do
+            unless (isNothing e || e == Just (JwsEncoding (jwsAlg hdr))) $
+                left (BadAlgorithm "Expected 'alg' doesn't match JWS header")
+            ks <- checkKeys $ filter (canDecodeJws hdr) keySet
             mapM decodeWithJws ks
-        JweH h     -> do
-            unless (isNothing encoding || encoding == Just (JweEncoding (jweAlg h) (jweEnc h))) $ left (BadAlgorithm "Expected encoding doesn't match JWE header")
+        (P.DecodableJwe hdr _ _ _ _ _, e) -> do
+            unless (isNothing e || e == Just (JweEncoding (jweAlg hdr) (jweEnc hdr))) $
+                left (BadAlgorithm "Expected encoding doesn't match JWE header")
+            ks <- checkKeys $ filter (canDecodeJwe hdr) keySet
             mapM decodeWithJwe ks
     case msum decodings of
         Nothing  -> left $ KeyError "None of the keys was able to decode the JWT"
@@ -114,7 +114,11 @@ decode keySet encoding jwt = runEitherT $ do
         SymmetricJwk  kb   _ _ _ -> Jws.hmacDecode kb jwt
 
     decodeWithJwe :: MonadRandom m => Jwk -> EitherT JwtError m (Maybe JwtContent)
-    decodeWithJwe k = liftM (either (const Nothing) Just) (lift (Jwe.jwkDecode k jwt))
+    decodeWithJwe k = fmap (either (const Nothing) Just) (lift (Jwe.jwkDecode k jwt))
+
+    checkKeys [] = left $ KeyError "No suitable key was found to decode the JWT"
+    checkKeys ks = return ks
+
 
 -- | Convenience function to return the claims contained in a JWT.
 -- This is required in situations such as client assertion authentication,
@@ -132,14 +136,3 @@ decodeClaims jwt = do
     return (hdr, claims)
   where
     parseClaims bs = maybe (Left BadClaims) Right $ decodeStrict' bs
-
-
-findDecodingKeys :: Monad m => JwtHeader -> [Jwk] -> EitherT JwtError m [Jwk]
-findDecodingKeys hdr jwks = case hdr of
-    JweH h -> checkKeys $ filter (canDecodeJwe h) jwks
-    JwsH h -> checkKeys $ filter (canDecodeJws h) jwks
-    UnsecuredH -> return []
-  where
-    -- TODO Move checks to JWK and support better error messages
-    checkKeys [] = left $ KeyError "No suitable key was found to decode the JWT"
-    checkKeys ks = return ks

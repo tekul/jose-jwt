@@ -16,6 +16,7 @@ module Jose.Internal.Parser
     )
 where
 
+import           Control.Applicative
 import Data.Aeson (eitherDecodeStrict')
 import           Data.Attoparsec.ByteString (Parser)
 import qualified Data.Attoparsec.ByteString as P
