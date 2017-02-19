@@ -1,7 +1,7 @@
 0.7.5
 -----
 
-* A JWT parser is now used to separate parsing and decoding into separaate stages (internal change).
+* A JWT parser is now used to separate parsing and decoding into separate stages (internal change).
 
 0.7.4
 -----
