@@ -1,16 +1,37 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | JWE RSA encrypted token support.
+-- | JWE encrypted token support.
 --
--- Example usage:
+-- To create a JWE, you need to select two algorithms. One is an AES algorithm
+-- used to encrypt the content of your token (for example, @A128GCM@), for which
+-- a single-use key is generated internally. The second is used to encrypt
+-- this content-encryption key and can be either an RSA or AES-keywrap algorithm.
+-- You need to generate a suitable key to use with this, or load one from storage.
+--
+-- AES is much faster and creates shorter tokens, but both the encoder and decoder
+-- of the token need to have a copy of the key, which they must keep secret. With
+-- RSA anyone can send you a JWE if they have a copy of your public key.
+--
+-- In the example below, we show encoding and decoding using a 512 byte RSA key pair
+-- (in practice you would use a larger key-size, for example 2048 bytes):
 --
 -- >>> import Jose.Jwe
 -- >>> import Jose.Jwa
--- >>> import Crypto.PubKey.RSA
--- >>> (kPub, kPr) <- generate 512 65537
--- >>> Right (Jwt jwt) <- rsaEncode RSA_OAEP A128GCM kPub "secret claims"
--- >>> rsaDecode kPr jwt
--- Right (JweHeader {jweAlg = RSA_OAEP, jweEnc = A128GCM, jweTyp = Nothing, jweCty = Nothing, jweZip = Nothing, jweKid = Nothing},"secret claims")
+-- >>> import Jose.Jwk (generateRsaKeyPair, generateSymmetricKey, KeyUse(Enc), KeyId)
+-- >>> (kPub, kPr) <- generateRsaKeyPair 512 (KeyId "My RSA Key") Enc Nothing
+-- >>> Right (Jwt jwt) <- jwkEncode RSA_OAEP A128GCM kPub (Claims "secret claims")
+-- >>> Right (Jwe (hdr, claims)) <- jwkDecode kPr jwt
+-- >>> claims
+-- "secret claims"
+--
+-- Using 128-bit AES keywrap is very similar, the main difference is that
+-- we generate a 128-bit symmetric key:
+--
+-- >>> aesKey <- generateSymmetricKey 16 (KeyId "My Keywrap Key") Enc Nothing
+-- >>> Right (Jwt jwt) <- jwkEncode A128KW A128GCM aesKey (Claims "more secret claims")
+-- >>> Right (Jwe (hdr, claims)) <- jwkDecode aesKey jwt
+-- >>> claims
+-- "more secret claims"
 
 module Jose.Jwe
     ( jwkEncode

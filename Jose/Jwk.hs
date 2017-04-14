@@ -15,12 +15,13 @@ module Jose.Jwk
     , canEncodeJws
     , canEncodeJwe
     , generateRsaKeyPair
+    , generateSymmetricKey
     )
 where
 
 import           Control.Applicative (pure)
 import           Control.Monad (unless)
-import           Crypto.Random (MonadRandom)
+import           Crypto.Random (MonadRandom, getRandomBytes)
 import qualified Crypto.PubKey.RSA as RSA
 import qualified Crypto.PubKey.ECC.ECDSA as ECDSA
 import qualified Crypto.PubKey.ECC.Types as ECC
@@ -72,6 +73,16 @@ generateRsaKeyPair :: (MonadRandom m)
 generateRsaKeyPair nBytes id' kuse kalg = do
     (kPub, kPr) <- RSA.generate nBytes 65537
     return (RsaPublicJwk kPub (Just id') (Just kuse) kalg, RsaPrivateJwk kPr (Just id') (Just kuse) kalg)
+
+generateSymmetricKey :: (MonadRandom m)
+    => Int
+    -> KeyId
+    -> KeyUse
+    -> Maybe Alg
+    -> m Jwk
+generateSymmetricKey size id' kuse kalg = do
+    k <- getRandomBytes size
+    return $ SymmetricJwk k (Just id') (Just kuse) kalg
 
 isPublic :: Jwk -> Bool
 isPublic RsaPublicJwk {} = True

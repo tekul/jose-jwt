@@ -3,7 +3,9 @@
 
 -- | High-level JWT encoding and decoding.
 --
--- Example usage:
+-- See the Jose.Jws and Jose.Jwe modules for specific JWS and JWE examples.
+--
+-- Example usage with a key stored as a JWK:
 --
 -- >>> import Jose.Jwe
 -- >>> import Jose.Jwa
