@@ -1,3 +1,9 @@
+0.7.6
+-----
+
+* Fixed exception when JWT contained invalid Base64 (issue #15).
+* Add generateSymmetricKey utility function to Jwk module.
+
 0.7.5
 -----
 
