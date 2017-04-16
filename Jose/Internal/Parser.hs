@@ -139,4 +139,4 @@ base64Chunk = do
 
 
 b64Decode :: ByteString -> P.Parser ByteString
-b64Decode bs = either (fail "Invalid Base64") return $ convertFromBase Base64URLUnpadded bs
+b64Decode bs = either (const (fail "Invalid Base64")) return $ convertFromBase Base64URLUnpadded bs

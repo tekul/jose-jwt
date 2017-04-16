@@ -150,6 +150,8 @@ spec =
         unpad "111\t\t\t\t\t\t\t" @?= Nothing
       it "Padding byte which matches padding length is OK" $
         unpad "1111111\t\t\t\t\t\t\t\t\t" @?= Just "1111111"
+      it "Rejects invalid Base64 JWT" $
+        withBlinder (Jwe.rsaDecode a2PrivKey "=.") @?= Left BadCrypto
 
 -- verboseQuickCheckWith quickCheckWith stdArgs {maxSuccess=10000}  jweRoundTrip
 jweRoundTrip :: RNG -> JWEAlgs -> [Word8] -> Bool
