@@ -6,6 +6,8 @@ Technically, the content of a JWT should be JSON (unless it's a nested JWT), but
 
 A simple JWS example in ghci to illustrate:
 
+    > :set -XOverloadedStrings
+    >
     > import Jose.Jws
     > import Jose.Jwa
     > hmacEncode HS384 "somehmackey" "my JSON message"
