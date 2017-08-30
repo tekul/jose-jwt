@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# OPTIONS_GHC -fno-warn-missing-signatures -fno-warn-orphans #-}
 
 module Tests.JweSpec where
@@ -39,7 +40,7 @@ spec =
       let a1Header = defJweHdr {jweAlg = RSA_OAEP, jweEnc = A256GCM}
 
       it "generates the expected IV and CMK from the RNG" $
-        withDRG (RNG $ B.append a1cek a1iv)
+        withDRG (RNG . BA.convert $ BA.append a1cek a1iv)
             (generateCmkAndIV A256GCM) @?= ((a1cek, a1iv), RNG "")
 
       it "generates the expected RSA-encrypted content key" $
@@ -51,7 +52,7 @@ spec =
         encryptPayload A256GCM a1cek a1iv aad a1Payload @?= Just (AuthTag a1Tag, a1Ciphertext)
 
       it "encodes the payload to the expected JWT, leaving the RNG empty" $
-        withDRG (RNG $ B.concat [a1cek, a1iv, a1oaepSeed])
+        withDRG (RNG $ BA.concat [a1cek, a1iv, BA.convert a1oaepSeed])
             (Jwe.rsaEncode RSA_OAEP A256GCM a1PubKey a1Payload) @?= (Right (Jwt a1), RNG "")
 
       it "decodes the JWT to the expected header and payload" $
@@ -70,7 +71,7 @@ spec =
 
       it "a truncated CEK returns BadCrypto" $ do
         let [hdr, _, iv, payload, tag] = BC.split '.' a1
-            (Right newEk, _) = withDRG blinderRNG (rsaEncrypt a1PubKey RSA_OAEP (B.tail a1cek))
+            newEk = encryptCek a1PubKey RSA_OAEP (BA.drop 1 a1cek)
         withBlinder (Jwe.rsaDecode a1PrivKey (B.intercalate "." [hdr, B64.encode newEk, iv, payload, tag])) @?= Left BadCrypto
 
       it "a truncated payload returns BadCrypto" $ do
@@ -87,7 +88,7 @@ spec =
 
       it "a truncated IV returns BadCrypto" $ do
         let (fore, aft) = BC.breakSubstring (B64.encode a1iv) a1
-            newIv = B64.encode (B.tail a1iv)
+            newIv = B64.encode (BA.drop 1 a1iv)
         withBlinder (Jwe.rsaDecode a1PrivKey (B.concat [fore, newIv, aft])) @?= Left BadCrypto
 
 
@@ -102,7 +103,7 @@ spec =
         encryptPayload A128CBC_HS256 a2cek a2iv aad a2Payload @?= Just (AuthTag (BA.convert a2Tag), a2Ciphertext)
 
       it "encodes the payload to the expected JWT" $
-        withDRG (RNG $ B.concat [a2cek, a2iv, a2seed])
+        withDRG (RNG $ BA.concat [BA.convert a2cek, a2iv, a2seed])
             (Jwe.rsaEncode RSA1_5 A128CBC_HS256 a2PubKey a2Payload) @?= (Right (Jwt a2), RNG "")
 
       it "decrypts the ciphertext to the correct payload" $
@@ -113,7 +114,7 @@ spec =
 
       it "a truncated CEK returns BadCrypto" $ do
         let [hdr, _, iv, payload, tag] = BC.split '.' a2
-            (Right newEk, _) = withDRG blinderRNG $ rsaEncrypt a2PubKey RSA1_5 (B.tail a2cek)
+            newEk = encryptCek a2PubKey RSA1_5 (BA.drop 1 a2cek)
         withBlinder (Jwe.rsaDecode a2PrivKey (B.intercalate "." [hdr, B64.encode newEk, iv, payload, tag])) @?= Left BadCrypto
 
       it "a truncated payload returns BadCrypto" $ do
@@ -145,13 +146,16 @@ spec =
 
     context "miscellaneous tests" $ do
       it "Padding byte larger than 16 is rejected" $
-        unpad "111a" @?= Nothing
+        up "111a" @?= Nothing
       it "Padding byte which doesn't match padding length is rejected" $
-        unpad "111\t\t\t\t\t\t\t" @?= Nothing
+        up "111\t\t\t\t\t\t\t" @?= Nothing
       it "Padding byte which matches padding length is OK" $
-        unpad "1111111\t\t\t\t\t\t\t\t\t" @?= Just "1111111"
+        up "1111111\t\t\t\t\t\t\t\t\t" @?= Just "1111111"
       it "Rejects invalid Base64 JWT" $
         withBlinder (Jwe.rsaDecode a2PrivKey "=.") @?= Left BadCrypto
+
+up :: BC.ByteString -> Maybe BC.ByteString
+up = unpad
 
 -- verboseQuickCheckWith quickCheckWith stdArgs {maxSuccess=10000}  jweRoundTrip
 jweRoundTrip :: RNG -> JWEAlgs -> [Word8] -> Bool
@@ -161,6 +165,12 @@ jweRoundTrip g (JWEAlgs a e) msg = encodeDecode == Right (Jwe (defJweHdr {jweAlg
     bs = B.pack msg
     encodeDecode = fst (withDRG blinderRNG (decode jwks Nothing encoded))
     Right encoded = unJwt <$> fst (withDRG g (encode jwks (JweEncoding a e) (Claims bs)))
+
+encryptCek kpub a cek =
+    let
+        (Right newEk, _) = withDRG blinderRNG $ rsaEncrypt kpub a (BA.drop 1 cek)
+    in
+        newEk :: BC.ByteString
 
 withBlinder = fst . withDRG blinderRNG
 
@@ -190,9 +200,11 @@ a1 = "eyJhbGciOiJSU0EtT0FFUCIsImVuYyI6IkEyNTZHQ00ifQ.OKOawDo13gRp2ojaHV7LFpZcgV7
 
 a1Payload = "The true sign of intelligence is not knowledge but imagination."
 
-a1cek = B.pack [177, 161, 244, 128, 84, 143, 225, 115, 63, 180, 3, 255, 107, 154, 212, 246, 138, 7, 110, 91, 112, 46, 34, 105, 47, 130, 203, 46, 122, 234, 64, 252]
+a1cek :: BA.ScrubbedBytes
+a1cek = BA.pack [177, 161, 244, 128, 84, 143, 225, 115, 63, 180, 3, 255, 107, 154, 212, 246, 138, 7, 110, 91, 112, 46, 34, 105, 47, 130, 203, 46, 122, 234, 64, 252]
 
-a1iv  = B.pack [227, 197, 117, 252, 2, 219, 233, 68, 180, 225, 77, 219]
+a1iv :: BA.ScrubbedBytes
+a1iv  = BA.pack [227, 197, 117, 252, 2, 219, 233, 68, 180, 225, 77, 219]
 
 a1aad = B.pack [101, 121, 74, 104, 98, 71, 99, 105, 79, 105, 74, 83, 85, 48, 69, 116, 84, 48, 70, 70, 85, 67, 73, 115, 73, 109, 86, 117, 89, 121, 73, 54, 73, 107, 69, 121, 78, 84, 90, 72, 81, 48, 48, 105, 102, 81]
 
@@ -221,7 +233,8 @@ a1oaepSeed = extractOaepSeed a1PrivKey a1jweKey
 
 a2Payload = "Live long and prosper."
 
-a2cek = B.pack [4, 211, 31, 197, 84, 157, 252, 254, 11, 100, 157, 250, 63, 170, 106, 206, 107, 124, 212, 45, 111, 107, 9, 219, 200, 177, 0, 240, 143, 156, 44, 207]
+a2cek :: BA.ScrubbedBytes
+a2cek = BA.pack [4, 211, 31, 197, 84, 157, 252, 254, 11, 100, 157, 250, 63, 170, 106, 206, 107, 124, 212, 45, 111, 107, 9, 219, 200, 177, 0, 240, 143, 156, 44, 207]
 
 --a2cek = B.pack [203, 165, 180, 113, 62, 195, 22, 98, 91, 153, 210, 38, 112, 35, 230, 236]
 

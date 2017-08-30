@@ -1,4 +1,5 @@
-{-# LANGUAGE OverloadedStrings, FlexibleContexts #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# OPTIONS_HADDOCK prune #-}
 
 -- | Internal functions for encrypting and signing / decrypting
@@ -23,6 +24,7 @@ module Jose.Internal.Crypto
 where
 
 
+import           Control.Applicative
 import           Control.Monad (when, unless)
 import           Crypto.Error
 import           Crypto.Cipher.AES
@@ -36,6 +38,7 @@ import qualified Crypto.PubKey.RSA.OAEP as OAEP
 import           Crypto.Random (MonadRandom, getRandomBytes)
 import           Crypto.MAC.HMAC (HMAC (..), hmac)
 import           Data.Bits (xor)
+import           Data.ByteArray (ByteArray, ScrubbedBytes)
 import qualified Data.ByteArray as BA
 import           Data.ByteString (ByteString)
 import qualified Data.ByteString as B
@@ -126,8 +129,10 @@ ecVerify a key msg sig = case a of
 --
 -- Used to encrypt a message.
 generateCmkAndIV :: MonadRandom m
-                 => Enc -- ^ The encryption algorithm to be used
-                 -> m (B.ByteString, B.ByteString) -- ^ The key, IV
+    => Enc
+    -- ^ The encryption algorithm to be used
+    -> m (ScrubbedBytes, ScrubbedBytes)
+    -- ^ The key, IV
 generateCmkAndIV e = do
     cmk <- getRandomBytes (keySize e)
     iv  <- getRandomBytes (ivSize e)   -- iv for aes gcm or cbc
@@ -146,35 +151,46 @@ generateCmkAndIV e = do
     ivSize _       = 16
 
 -- | Encrypts a message (typically a symmetric key) using RSA.
-rsaEncrypt :: MonadRandom m
-    => RSA.PublicKey      -- ^ The encryption key
-    -> JweAlg             -- ^ The algorithm (either @RSA1_5@ or @RSA_OAEP@)
-    -> B.ByteString       -- ^ The message to encrypt
-    -> m (Either JwtError B.ByteString)     -- ^ The encrypted message
-rsaEncrypt k a bs = case a of
+rsaEncrypt :: (MonadRandom m, ByteArray msg, ByteArray out)
+    => RSA.PublicKey
+    -- ^ The encryption key
+    -> JweAlg
+    -- ^ The algorithm (either @RSA1_5@ or @RSA_OAEP@)
+    -> msg
+    -- ^ The message to encrypt
+    -> m (Either JwtError out)
+    -- ^ The encrypted message
+rsaEncrypt k a msg = fmap BA.convert <$> case a of
     RSA1_5   -> mapErr (PKCS15.encrypt k bs)
     RSA_OAEP -> mapErr (OAEP.encrypt (OAEP.defaultOAEPParams SHA1) k bs)
     _        -> return (Left (BadAlgorithm "Not an RSA algorithm"))
   where
+    bs = BA.convert msg
     mapErr = fmap (mapLeft (const BadCrypto))
 
 -- | Decrypts an RSA encrypted message.
-rsaDecrypt :: Maybe RSA.Blinder
-           -> RSA.PrivateKey                -- ^ The decryption key
-           -> JweAlg                        -- ^ The RSA algorithm to use
-           -> B.ByteString                  -- ^ The encrypted content
-           -> Either JwtError B.ByteString  -- ^ The decrypted key
-rsaDecrypt blinder rsaKey a jweKey = case a of
-    RSA1_5   -> mapErr (PKCS15.decrypt blinder rsaKey jweKey)
-    RSA_OAEP -> mapErr (OAEP.decrypt blinder (OAEP.defaultOAEPParams SHA1) rsaKey jweKey)
+rsaDecrypt :: ByteArray ct
+    => Maybe RSA.Blinder
+    -> RSA.PrivateKey
+    -- ^ The decryption key
+    -> JweAlg
+    -- ^ The RSA algorithm to use
+    -> ct
+    -- ^ The encrypted content
+    -> Either JwtError ScrubbedBytes
+    -- ^ The decrypted key
+rsaDecrypt blinder rsaKey a ct = BA.convert <$> case a of
+    RSA1_5   -> mapErr (PKCS15.decrypt blinder rsaKey bs)
+    RSA_OAEP -> mapErr (OAEP.decrypt blinder (OAEP.defaultOAEPParams SHA1) rsaKey bs)
     _        -> Left (BadAlgorithm "Not an RSA algorithm")
   where
+    bs = BA.convert ct
     mapErr = mapLeft (const BadCrypto)
 
 -- Dummy type to constrain Cipher type
 data C c = C
 
-initCipher :: BlockCipher c => C c -> ByteString -> Either JwtError c
+initCipher :: BlockCipher c => C c -> ScrubbedBytes -> Either JwtError c
 initCipher _ k = mapFail (cipherInit k)
 
 -- Map CryptoFailable to JwtError
@@ -186,13 +202,20 @@ mapFail (CryptoFailed e) = Left $ case e of
 
 
 -- | Decrypt an AES encrypted message.
-decryptPayload :: Enc        -- ^ Encryption algorithm
-               -> ByteString -- ^ Content encryption key
-               -> IV         -- ^ IV
-               -> ByteString -- ^ Additional authentication data
-               -> Tag        -- ^ The integrity protection value to be checked
-               -> ByteString -- ^ The encrypted JWT payload
-               -> Maybe ByteString
+decryptPayload :: forall ba. (ByteArray ba)
+    => Enc
+    -- ^ Encryption algorithm
+    -> ScrubbedBytes
+    -- ^ Content encryption key
+    -> IV
+    -- ^ IV
+    -> ba
+    -- ^ Additional authentication data
+    -> Tag
+    -- ^ The integrity protection value to be checked
+    -> ba
+    -- ^ The encrypted JWT payload
+    -> Maybe ba
 decryptPayload enc cek iv_ aad tag_ ct = case (enc, iv_, tag_) of
     (A128GCM, IV12 b, Tag16 t) -> doGCM (C :: C AES128) b t
     (A192GCM, IV12 b, Tag16 t) -> doGCM (C :: C AES192) b t
@@ -202,21 +225,21 @@ decryptPayload enc cek iv_ aad tag_ ct = case (enc, iv_, tag_) of
     (A256CBC_HS512, IV16 b, Tag32 t) -> doCBC (C :: C AES256) b t SHA512 32
     _ -> Nothing -- This shouldn't be possible if the JWT was parsed first
   where
-    (cbcMacKey, cbcEncKey) = B.splitAt (B.length cek `div` 2) cek
-    al = fromIntegral (B.length aad) * 8 :: Word64
+    (cbcMacKey, cbcEncKey) = BA.splitAt (BA.length cek `div` 2) cek :: (ScrubbedBytes, ScrubbedBytes)
+    al = fromIntegral (BA.length aad) * 8 :: Word64
 
-    doGCM :: BlockCipher c => C c -> ByteString -> ByteString -> Maybe ByteString
+    doGCM :: BlockCipher c => C c -> ByteString -> ByteString -> Maybe ba
     doGCM c iv tag = do
         cipher <- rightToMaybe (initCipher c cek)
         aead <- maybeCryptoError (aeadInit AEAD_GCM cipher iv)
         aeadSimpleDecrypt aead aad ct (AuthTag $ BA.convert tag)
 
-    doCBC :: (HashAlgorithm a, BlockCipher c) => C c -> ByteString -> ByteString -> a -> Int -> Maybe ByteString
+    doCBC :: (HashAlgorithm a, BlockCipher c) => C c -> ByteString -> ByteString -> a -> Int -> Maybe ba
     doCBC c iv tag a tagLen = do
         checkMac a tag iv tagLen
         cipher <- rightToMaybe (initCipher c cbcEncKey)
         iv'    <- makeIV iv
-        unless (B.length ct `mod` blockSize cipher == 0) Nothing
+        unless (BA.length ct `mod` blockSize cipher == 0) Nothing
         unpad $ cbcDecrypt cipher iv' ct
 
     checkMac :: HashAlgorithm a => a -> ByteString -> ByteString -> Int -> Maybe ()
@@ -225,15 +248,22 @@ decryptPayload enc cek iv_ aad tag_ ct = case (enc, iv_, tag_) of
         unless (tag `BA.constEq` mac) Nothing
 
     doMac :: HashAlgorithm a => a -> ByteString -> HMAC a
-    doMac _ iv = hmac cbcMacKey $ B.concat [aad, iv, ct, Serialize.encode al]
+    doMac _ iv = hmac cbcMacKey (BA.concat [BA.convert aad, iv, BA.convert ct, Serialize.encode al] :: ByteString)
 
 -- | Encrypt a message using AES.
-encryptPayload :: Enc                   -- ^ Encryption algorithm
-               -> ByteString            -- ^ Content management key
-               -> ByteString            -- ^ IV
-               -> ByteString            -- ^ Additional authenticated data
-               -> ByteString            -- ^ The message/JWT claims
-               -> Maybe (AuthTag, ByteString) -- ^ Ciphertext claims and signature tag
+encryptPayload :: forall ba iv. (ByteArray ba, ByteArray iv)
+    => Enc
+    -- ^ Encryption algorithm
+    -> ScrubbedBytes
+    -- ^ Content management key
+    -> iv
+    -- ^ IV
+    -> ba
+    -- ^ Additional authenticated data
+    -> ba
+    -- ^ The message/JWT claims
+    -> Maybe (AuthTag, ba)
+    -- ^ Ciphertext claims and signature tag
 encryptPayload e cek iv aad msg = case e of
     A128GCM       -> doGCM (C :: C AES128)
     A192GCM       -> doGCM (C :: C AES192)
@@ -242,16 +272,15 @@ encryptPayload e cek iv aad msg = case e of
     A192CBC_HS384 -> doCBC (C :: C AES192) SHA384 24
     A256CBC_HS512 -> doCBC (C :: C AES256) SHA512 32
   where
-    (cbcMacKey, cbcEncKey) = B.splitAt (B.length cek `div` 2) cek
-    al = fromIntegral (B.length aad) * 8 :: Word64
+    (cbcMacKey, cbcEncKey) = BA.splitAt (BA.length cek `div` 2) cek :: (ScrubbedBytes, ScrubbedBytes)
+    al = fromIntegral (BA.length aad) * 8 :: Word64
 
-    doGCM :: BlockCipher c => C c -> Maybe (AuthTag, ByteString)
     doGCM c = do
         cipher <- rightToMaybe (initCipher c cek)
         aead <- maybeCryptoError (aeadInit AEAD_GCM cipher iv)
         return $ aeadSimpleEncrypt aead aad msg 16
 
-    doCBC :: (HashAlgorithm a, BlockCipher c) => C c -> a -> Int -> Maybe (AuthTag, ByteString)
+    doCBC :: (HashAlgorithm a, BlockCipher c) => C c -> a -> Int -> Maybe (AuthTag, ba)
     doCBC c a tagLen = do
         cipher <- rightToMaybe (initCipher c cbcEncKey)
         iv'    <- makeIV iv
@@ -260,39 +289,39 @@ encryptPayload e cek iv aad msg = case e of
             tag = BA.take tagLen (BA.convert mac)
         return (AuthTag tag, ct)
 
-    doMac :: HashAlgorithm a => a -> ByteString -> HMAC a
-    doMac _ ct = hmac cbcMacKey $ B.concat [aad, iv, ct, Serialize.encode al]
+    doMac :: HashAlgorithm a => a -> ba -> HMAC a
+    doMac _ ct = hmac cbcMacKey (BA.concat [BA.convert aad, BA.convert iv, BA.convert ct, Serialize.encode al] :: ByteString)
 
-unpad :: ByteString -> Maybe ByteString
+unpad :: (ByteArray ba) => ba -> Maybe ba
 unpad bs
-    | padLen > 16 || padLen /= B.length padding = Nothing
-    | B.any (/= padByte) padding = Nothing
+    | padLen > 16 || padLen /= BA.length padding = Nothing
+    | BA.any (/= padByte) padding = Nothing
     | otherwise = return pt
   where
-    len     = B.length bs
-    padByte = B.last bs
+    len     = BA.length bs
+    padByte = BA.index bs (len-1)
     padLen  = fromIntegral padByte
-    (pt, padding) = B.splitAt (len - padLen) bs
+    (pt, padding) = BA.splitAt (len - padLen) bs
 
-pad :: ByteString -> ByteString
-pad bs = B.append bs padding
+pad ::  (ByteArray ba) => ba -> ba
+pad bs = BA.append bs padding
   where
-    lastBlockSize = B.length bs `mod` 16
+    lastBlockSize = BA.length bs `mod` 16
     padByte       = fromIntegral $ 16 - lastBlockSize :: Word8
-    padding       = B.replicate (fromIntegral padByte) padByte
+    padding       = BA.replicate (fromIntegral padByte) padByte
 
 
 -- Key wrapping and unwrapping functions
 
 -- | <https://tools.ietf.org/html/rfc3394#section-2.2.1>
-keyWrap :: JweAlg -> ByteString -> ByteString -> Either JwtError ByteString
+keyWrap :: ByteArray ba => JweAlg -> ScrubbedBytes -> ScrubbedBytes -> Either JwtError ba
 keyWrap alg kek cek = case alg of
     A128KW -> doKeyWrap (C :: C AES128)
     A192KW -> doKeyWrap (C :: C AES192)
     A256KW -> doKeyWrap (C :: C AES256)
     _      -> Left (BadAlgorithm "Not a keywrap algorithm")
   where
-    l = B.length cek
+    l = BA.length cek
     n = l `div` 8
     iv = BA.replicate 8 166 :: ByteString
 
@@ -300,36 +329,41 @@ keyWrap alg kek cek = case alg of
         when (l < 16 || l `mod` 8 /= 0) (Left (KeyError "Invalid content key"))
         cipher <- initCipher c kek
         let p = toBlocks cek
-            (r0, r) = foldl (doRound (ecbEncrypt cipher) 1) (iv, p) [0..5]
-        Right $ B.concat (r0 : r)
+            (r0, r) = foldl (doRound (ecbEncrypt cipher) 1) (BA.convert iv, p) [0..5]
+        Right $ BA.concat (r0 : r)
 
     doRound _ _  (a, []) _ = (a, [])
     doRound enc i (a, r:rs) j =
-        let b  = enc $ B.concat [a, r]
+        let b  = enc $ BA.concat [a, r]
             t  = fromIntegral ((n*j) + i) :: Word8
-            a' = txor t (B.take 8 b)
-            r' = B.drop 8 b
+            a' = txor t (BA.take 8 b)
+            r' = BA.drop 8 b
             next = doRound enc (i+1) (a', rs) j
         in (fst next, r' : snd next)
 
-    txor t b = B.snoc (B.init b) (B.last b `xor` t)
+txor :: ByteArray ba => Word8 -> ba -> ba
+txor t b =
+    let n = BA.length b
+        lastByte = BA.index b (n-1)
+        initBytes = BA.take (n-1) b
+      in BA.snoc initBytes (lastByte `xor` t)
 
-toBlocks :: ByteString -> [ByteString]
+toBlocks :: ByteArray ba => ba -> [ba]
 toBlocks bytes
-    | bytes == B.empty = []
-    | otherwise    = let (b, bs') = B.splitAt 8 bytes
-                        in  b : toBlocks bs'
+    | BA.null bytes = []
+    | otherwise = let (b, bs') = BA.splitAt 8 bytes
+                   in b : toBlocks bs'
 
-keyUnwrap :: ByteString -> JweAlg -> ByteString -> Either JwtError ByteString
+keyUnwrap :: ByteArray ba => ScrubbedBytes -> JweAlg -> ba -> Either JwtError ScrubbedBytes
 keyUnwrap kek alg encK = case alg of
     A128KW -> doUnWrap (C :: C AES128)
     A192KW -> doUnWrap (C :: C AES192)
     A256KW -> doUnWrap (C :: C AES256)
     _      -> Left (BadAlgorithm "Not a keywrap algorithm")
   where
-    l = B.length encK
+    l = BA.length encK
     n = (l `div` 8) - 1
-    iv = BA.replicate 8 166 :: ByteString
+    iv = BA.replicate 8 166
 
     doUnWrap c = do
         when (l < 24 || l `mod` 8 /= 0) (Left BadCrypto)
@@ -337,15 +371,13 @@ keyUnwrap kek alg encK = case alg of
         let r = toBlocks encK
             (p0, p) = foldl (doRound (ecbDecrypt cipher) n) (head r, reverse (tail r)) (reverse [0..5])
         unless (p0 == iv) (Left BadCrypto)
-        Right $ B.concat (reverse p)
+        Right $ BA.concat (reverse p)
 
     doRound _ _  (a, []) _ = (a, [])
     doRound dec i (a, r:rs) j =
-        let b  = dec $ B.concat [txor t a, r]
+        let b  = dec $ BA.concat [txor t a, r]
             t  = fromIntegral ((n*j) + i) :: Word8
-            a' = B.take 8 b
-            r' = B.drop 8 b
+            a' = BA.take 8 b
+            r' = BA.drop 8 b
             next = doRound dec (i-1) (a', rs) j
         in (fst next, r' : snd next)
-
-    txor t b = B.snoc (B.init b) (B.last b `xor` t)

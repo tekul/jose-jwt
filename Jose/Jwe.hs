@@ -46,6 +46,7 @@ import Control.Monad.Trans.Either
 import Crypto.Cipher.Types (AuthTag(..))
 import Crypto.PubKey.RSA (PrivateKey(..), PublicKey(..), generateBlinder, private_pub)
 import Crypto.Random (MonadRandom)
+import Data.ByteArray (ByteArray, ScrubbedBytes)
 import qualified Data.ByteArray as BA
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
@@ -68,7 +69,7 @@ jwkEncode :: MonadRandom m
 jwkEncode a e jwk payload = runEitherT $ case jwk of
     RsaPublicJwk kPub kid _ _ -> doEncode (hdr kid) (doRsa kPub) bytes
     RsaPrivateJwk kPr kid _ _ -> doEncode (hdr kid) (doRsa (private_pub kPr)) bytes
-    SymmetricJwk  kek kid _ _ -> doEncode (hdr kid) (hoistEither . keyWrap a kek) bytes
+    SymmetricJwk  kek kid _ _ -> doEncode (hdr kid) (hoistEither . keyWrap a (BA.convert kek)) bytes
     _                         -> left $ KeyError "JWK cannot encode a JWE"
   where
     doRsa kPub = EitherT . rsaEncrypt kPub a
@@ -90,12 +91,12 @@ jwkDecode jwk jwt = runEitherT $ case jwk of
         blinder <- lift $ generateBlinder (public_n $ private_pub kPr)
         e <- doDecode (rsaDecrypt (Just blinder) kPr) jwt
         return (Jwe e)
-    SymmetricJwk kb   _ _ _ -> fmap Jwe (doDecode (keyUnwrap kb) jwt)
+    SymmetricJwk kb   _ _ _ -> fmap Jwe (doDecode (keyUnwrap (BA.convert kb)) jwt)
     _                       -> left $ KeyError "JWK cannot decode a JWE"
 
 
 doDecode :: MonadRandom m
-    => (JweAlg -> ByteString -> Either JwtError ByteString)
+    => (JweAlg -> ByteString -> Either JwtError ScrubbedBytes)
     -> ByteString
     -> EitherT JwtError m Jwe
 doDecode decodeCek jwt = do
@@ -106,7 +107,7 @@ doDecode decodeCek jwt = do
                 enc = jweEnc hdr
             (dummyCek, _) <- lift $ generateCmkAndIV enc
             let decryptedCek = either (const dummyCek) id $ decodeCek alg ek
-                cek = if B.length decryptedCek == B.length dummyCek
+                cek = if BA.length decryptedCek == BA.length dummyCek
                         then decryptedCek
                         else dummyCek
             claims <- maybe (left BadCrypto) return $ decryptPayload enc cek iv aad tag payload
@@ -115,16 +116,16 @@ doDecode decodeCek jwt = do
         _ -> left (BadHeader "Content is not a JWE")
 
 
-doEncode :: MonadRandom m
+doEncode :: (MonadRandom m, ByteArray ba)
     => JweHeader
-    -> (ByteString -> EitherT JwtError m ByteString)
-    -> ByteString
+    -> (ScrubbedBytes -> EitherT JwtError m ByteString)
+    -> ba
     -> EitherT JwtError m Jwt
 doEncode h encryptKey claims = do
     (cmk, iv) <- lift (generateCmkAndIV e)
     let Just (AuthTag sig, ct) = encryptPayload e cmk iv aad claims
     jweKey <- encryptKey cmk
-    let jwe = B.intercalate "." $ map B64.encode [hdr, jweKey, iv, ct, BA.convert sig]
+    let jwe = B.intercalate "." $ map B64.encode [hdr, jweKey, BA.convert iv, BA.convert ct, BA.convert sig]
     return (Jwt jwe)
   where
     e   = jweEnc h
