@@ -1,3 +1,8 @@
+0.7.7
+-----
+
+* User ByteArray and ScrubbedBytes from memory package in preference to ByteString in internal crypto code.
+
 0.7.6
 -----
 
