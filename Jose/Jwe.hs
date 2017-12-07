@@ -42,7 +42,7 @@ module Jose.Jwe
 where
 
 import Control.Monad.Trans (lift)
-import Control.Monad.Trans.Either
+import Control.Monad.Trans.Except
 import Crypto.Cipher.Types (AuthTag(..))
 import Crypto.PubKey.RSA (PrivateKey(..), PublicKey(..), generateBlinder, private_pub)
 import Crypto.Random (MonadRandom)
@@ -66,13 +66,13 @@ jwkEncode :: MonadRandom m
     -> Jwk                             -- ^ The key to use to encrypt the content key
     -> Payload                         -- ^ The token content (claims or nested JWT)
     -> m (Either JwtError Jwt)         -- ^ The encoded JWE if successful
-jwkEncode a e jwk payload = runEitherT $ case jwk of
+jwkEncode a e jwk payload = runExceptT $ case jwk of
     RsaPublicJwk kPub kid _ _ -> doEncode (hdr kid) (doRsa kPub) bytes
     RsaPrivateJwk kPr kid _ _ -> doEncode (hdr kid) (doRsa (private_pub kPr)) bytes
-    SymmetricJwk  kek kid _ _ -> doEncode (hdr kid) (hoistEither . keyWrap a (BA.convert kek)) bytes
-    _                         -> left $ KeyError "JWK cannot encode a JWE"
+    SymmetricJwk  kek kid _ _ -> doEncode (hdr kid) (ExceptT .  return . keyWrap a (BA.convert kek)) bytes
+    _                         -> throwE $ KeyError "JWK cannot encode a JWE"
   where
-    doRsa kPub = EitherT . rsaEncrypt kPub a
+    doRsa kPub = ExceptT . rsaEncrypt kPub a
     hdr kid = defJweHdr {jweAlg = a, jweEnc = e, jweKid = kid, jweCty = contentType}
     (contentType, bytes) = case payload of
         Claims c       -> (Nothing, c)
@@ -86,21 +86,21 @@ jwkDecode :: MonadRandom m
     => Jwk
     -> ByteString
     -> m (Either JwtError JwtContent)
-jwkDecode jwk jwt = runEitherT $ case jwk of
+jwkDecode jwk jwt = runExceptT $ case jwk of
     RsaPrivateJwk kPr _ _ _ -> do
         blinder <- lift $ generateBlinder (public_n $ private_pub kPr)
         e <- doDecode (rsaDecrypt (Just blinder) kPr) jwt
         return (Jwe e)
     SymmetricJwk kb   _ _ _ -> fmap Jwe (doDecode (keyUnwrap (BA.convert kb)) jwt)
-    _                       -> left $ KeyError "JWK cannot decode a JWE"
+    _                       -> throwE $ KeyError "JWK cannot decode a JWE"
 
 
 doDecode :: MonadRandom m
     => (JweAlg -> ByteString -> Either JwtError ScrubbedBytes)
     -> ByteString
-    -> EitherT JwtError m Jwe
+    -> ExceptT JwtError m Jwe
 doDecode decodeCek jwt = do
-    encodedJwt <- hoistEither (P.parseJwt jwt)
+    encodedJwt <- ExceptT (return (P.parseJwt jwt))
     case encodedJwt of
         P.DecodableJwe hdr (P.EncryptedCEK ek) iv (P.Payload payload) tag (P.AAD aad) -> do
             let alg = jweAlg hdr
@@ -110,17 +110,17 @@ doDecode decodeCek jwt = do
                 cek = if BA.length decryptedCek == BA.length dummyCek
                         then decryptedCek
                         else dummyCek
-            claims <- maybe (left BadCrypto) return $ decryptPayload enc cek iv aad tag payload
+            claims <- maybe (throwE BadCrypto) return $ decryptPayload enc cek iv aad tag payload
             return (hdr, claims)
 
-        _ -> left (BadHeader "Content is not a JWE")
+        _ -> throwE (BadHeader "Content is not a JWE")
 
 
 doEncode :: (MonadRandom m, ByteArray ba)
     => JweHeader
-    -> (ScrubbedBytes -> EitherT JwtError m ByteString)
+    -> (ScrubbedBytes -> ExceptT JwtError m ByteString)
     -> ba
-    -> EitherT JwtError m Jwt
+    -> ExceptT JwtError m Jwt
 doEncode h encryptKey claims = do
     (cmk, iv) <- lift (generateCmkAndIV e)
     let Just (AuthTag sig, ct) = encryptPayload e cmk iv aad claims
@@ -139,7 +139,7 @@ rsaEncode :: MonadRandom m
     -> PublicKey       -- ^ RSA key to encrypt with
     -> ByteString      -- ^ The JWT claims (content)
     -> m (Either JwtError Jwt) -- ^ The encoded JWE
-rsaEncode a e kPub claims = runEitherT $ doEncode (defJweHdr {jweAlg = a, jweEnc = e}) (EitherT . rsaEncrypt kPub a) claims
+rsaEncode a e kPub claims = runExceptT $ doEncode (defJweHdr {jweAlg = a, jweEnc = e}) (ExceptT . rsaEncrypt kPub a) claims
 
 
 -- | Decrypts a JWE.
@@ -147,6 +147,6 @@ rsaDecode :: MonadRandom m
     => PrivateKey               -- ^ Decryption key
     -> ByteString               -- ^ The encoded JWE
     -> m (Either JwtError Jwe)  -- ^ The decoded JWT, unless an error occurs
-rsaDecode pk jwt = runEitherT $ do
+rsaDecode pk jwt = runExceptT $ do
     blinder <- lift $ generateBlinder (public_n $ private_pub pk)
     doDecode (rsaDecrypt (Just blinder) pk) jwt

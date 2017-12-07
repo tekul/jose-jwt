@@ -29,7 +29,7 @@ where
 
 import Control.Monad (msum, when, unless)
 import Control.Monad.Trans (lift)
-import Control.Monad.Trans.Either
+import Control.Monad.Trans.Except
 import qualified Crypto.PubKey.ECC.ECDSA as ECDSA
 import Crypto.PubKey.RSA (PrivateKey(..))
 import Crypto.Random (MonadRandom)
@@ -57,16 +57,16 @@ encode :: MonadRandom m
     -> JwtEncoding               -- ^ The encoding algorithm(s) used to encode the payload
     -> Payload                   -- ^ The payload (claims)
     -> m (Either JwtError Jwt)   -- ^ The encoded JWT, if successful
-encode jwks encoding msg = runEitherT $ case encoding of
+encode jwks encoding msg = runExceptT $ case encoding of
     JwsEncoding None -> case msg of
         Claims p -> return $ Jwt $ BC.intercalate "." [unsecuredHdr, B64.encode p]
-        Nested _ -> left BadClaims
+        Nested _ -> throwE BadClaims
     JwsEncoding a    -> case filter (canEncodeJws a) jwks of
-        []    -> left (KeyError "No matching key found for JWS algorithm")
-        (k:_) -> hoistEither =<< lift (Jws.jwkEncode a k msg)
+        []    -> throwE (KeyError "No matching key found for JWS algorithm")
+        (k:_) -> ExceptT . return =<< lift (Jws.jwkEncode a k msg)
     JweEncoding a e -> case filter (canEncodeJwe a) jwks of
-        []    -> left (KeyError "No matching key found for JWE algorithm")
-        (k:_) -> hoistEither =<< lift (Jwe.jwkEncode a e k msg)
+        []    -> throwE (KeyError "No matching key found for JWE algorithm")
+        (k:_) -> ExceptT . return =<< lift (Jwe.jwkEncode a e k msg)
   where
     unsecuredHdr = B64.encode (BC.pack "{\"alg\":\"none\"}")
 
@@ -87,27 +87,27 @@ decode :: MonadRandom m
     -> Maybe JwtEncoding               -- ^ The expected encoding information
     -> ByteString                      -- ^ The encoded JWT
     -> m (Either JwtError JwtContent)  -- ^ The decoded JWT payload, if successful
-decode keySet encoding jwt = runEitherT $ do
-    decodableJwt <- hoistEither (P.parseJwt jwt)
+decode keySet encoding jwt = runExceptT $ do
+    decodableJwt <- ExceptT (return (P.parseJwt jwt))
 
     decodings <- case (decodableJwt, encoding) of
         (P.Unsecured p, Just (JwsEncoding None)) -> return [Just (Unsecured p)]
-        (P.Unsecured _, _) -> left (BadAlgorithm "JWT is unsecured but expected 'alg' was not 'none'")
+        (P.Unsecured _, _) -> throwE (BadAlgorithm "JWT is unsecured but expected 'alg' was not 'none'")
         (P.DecodableJws hdr _ _ _, e) -> do
             unless (isNothing e || e == Just (JwsEncoding (jwsAlg hdr))) $
-                left (BadAlgorithm "Expected 'alg' doesn't match JWS header")
+                throwE (BadAlgorithm "Expected 'alg' doesn't match JWS header")
             ks <- checkKeys $ filter (canDecodeJws hdr) keySet
             mapM decodeWithJws ks
         (P.DecodableJwe hdr _ _ _ _ _, e) -> do
             unless (isNothing e || e == Just (JweEncoding (jweAlg hdr) (jweEnc hdr))) $
-                left (BadAlgorithm "Expected encoding doesn't match JWE header")
+                throwE (BadAlgorithm "Expected encoding doesn't match JWE header")
             ks <- checkKeys $ filter (canDecodeJwe hdr) keySet
             mapM decodeWithJwe ks
     case msum decodings of
-        Nothing  -> left $ KeyError "None of the keys was able to decode the JWT"
+        Nothing  -> throwE $ KeyError "None of the keys was able to decode the JWT"
         Just jwtContent -> return jwtContent
   where
-    decodeWithJws :: MonadRandom m => Jwk -> EitherT JwtError m (Maybe JwtContent)
+    decodeWithJws :: MonadRandom m => Jwk -> ExceptT JwtError m (Maybe JwtContent)
     decodeWithJws k = either (const $ return Nothing) (return . Just . Jws) $ case k of
         RsaPublicJwk  kPub _ _ _ -> Jws.rsaDecode kPub jwt
         RsaPrivateJwk kPr  _ _ _ -> Jws.rsaDecode (private_pub kPr) jwt
@@ -115,10 +115,10 @@ decode keySet encoding jwt = runEitherT $ do
         EcPrivateJwk  kPr  _ _ _ _ -> Jws.ecDecode (ECDSA.toPublicKey kPr) jwt
         SymmetricJwk  kb   _ _ _ -> Jws.hmacDecode kb jwt
 
-    decodeWithJwe :: MonadRandom m => Jwk -> EitherT JwtError m (Maybe JwtContent)
+    decodeWithJwe :: MonadRandom m => Jwk -> ExceptT JwtError m (Maybe JwtContent)
     decodeWithJwe k = fmap (either (const Nothing) Just) (lift (Jwe.jwkDecode k jwt))
 
-    checkKeys [] = left $ KeyError "No suitable key was found to decode the JWT"
+    checkKeys [] = throwE $ KeyError "No suitable key was found to decode the JWT"
     checkKeys ks = return ks
 
 
