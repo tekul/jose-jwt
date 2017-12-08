@@ -3,6 +3,8 @@
 cabal.sandbox.config
 *.swp
 dist/
+dist-newstyle/
+result
 *.aes
 *.hi
 *.o
