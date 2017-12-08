@@ -1,3 +1,8 @@
+0.7.8
+-----
+
+* Switch from EitherT to ExceptT to allow compiling with latest version of 'either' package.
+
 0.7.7
 -----
 
