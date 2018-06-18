@@ -13,4 +13,4 @@ result
 *.aux
 *.hp
 tags
-
+.idea/*
