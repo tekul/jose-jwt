@@ -136,24 +136,27 @@ canDecodeJwe hdr jwk = jwkUse jwk /= Just Sig &&
     keyIdCompatible (jweKid hdr) jwk &&
     algCompatible (Encrypted (jweAlg hdr)) jwk &&
     case (jweAlg hdr, jwk) of
-        (RSA1_5,   RsaPrivateJwk {}) -> True
-        (RSA_OAEP, RsaPrivateJwk {}) -> True
-        (A128KW,   SymmetricJwk k _ _ _) -> B.length k == 16
-        (A192KW,   SymmetricJwk k _ _ _) -> B.length k == 24
-        (A256KW,   SymmetricJwk k _ _ _) -> B.length k == 32
+        (RSA1_5,       RsaPrivateJwk {}) -> True
+        (RSA_OAEP,     RsaPrivateJwk {}) -> True
+        (RSA_OAEP_256, RsaPrivateJwk {}) -> True
+        (A128KW,       SymmetricJwk k _ _ _) -> B.length k == 16
+        (A192KW,       SymmetricJwk k _ _ _) -> B.length k == 24
+        (A256KW,       SymmetricJwk k _ _ _) -> B.length k == 32
         _                            -> False
 
 canEncodeJwe :: JweAlg -> Jwk -> Bool
 canEncodeJwe a jwk = jwkUse jwk /= Just Sig &&
     algCompatible (Encrypted a) jwk &&
     case (a, jwk) of
-        (RSA1_5,   RsaPublicJwk {})  -> True
-        (RSA_OAEP, RsaPublicJwk {})  -> True
-        (RSA1_5,   RsaPrivateJwk {}) -> True
-        (RSA_OAEP, RsaPrivateJwk {}) -> True
-        (A128KW,   SymmetricJwk k _ _ _) -> B.length k == 16
-        (A192KW,   SymmetricJwk k _ _ _) -> B.length k == 24
-        (A256KW,   SymmetricJwk k _ _ _) -> B.length k == 32
+        (RSA1_5,       RsaPublicJwk {})  -> True
+        (RSA_OAEP,     RsaPublicJwk {})  -> True
+        (RSA_OAEP_256, RsaPublicJwk {})  -> True
+        (RSA1_5,       RsaPrivateJwk {}) -> True
+        (RSA_OAEP,     RsaPrivateJwk {}) -> True
+        (RSA_OAEP_256, RsaPrivateJwk {}) -> True
+        (A128KW,       SymmetricJwk k _ _ _) -> B.length k == 16
+        (A192KW,       SymmetricJwk k _ _ _) -> B.length k == 24
+        (A256KW,       SymmetricJwk k _ _ _) -> B.length k == 32
         _                            -> False
 
 keyIdCompatible :: Maybe KeyId -> Jwk -> Bool

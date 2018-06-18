@@ -155,15 +155,16 @@ rsaEncrypt :: (MonadRandom m, ByteArray msg, ByteArray out)
     => RSA.PublicKey
     -- ^ The encryption key
     -> JweAlg
-    -- ^ The algorithm (either @RSA1_5@ or @RSA_OAEP@)
+    -- ^ The algorithm (@RSA1_5@, @RSA_OAEP@, or @RSA_OAEP_256@)
     -> msg
     -- ^ The message to encrypt
     -> m (Either JwtError out)
     -- ^ The encrypted message
 rsaEncrypt k a msg = fmap BA.convert <$> case a of
-    RSA1_5   -> mapErr (PKCS15.encrypt k bs)
-    RSA_OAEP -> mapErr (OAEP.encrypt (OAEP.defaultOAEPParams SHA1) k bs)
-    _        -> return (Left (BadAlgorithm "Not an RSA algorithm"))
+    RSA1_5       -> mapErr (PKCS15.encrypt k bs)
+    RSA_OAEP     -> mapErr (OAEP.encrypt (OAEP.defaultOAEPParams SHA1) k bs)
+    RSA_OAEP_256 -> mapErr (OAEP.encrypt (OAEP.defaultOAEPParams SHA256) k bs)
+    _            -> return (Left (BadAlgorithm "Not an RSA algorithm"))
   where
     bs = BA.convert msg
     mapErr = fmap (mapLeft (const BadCrypto))
@@ -180,9 +181,10 @@ rsaDecrypt :: ByteArray ct
     -> Either JwtError ScrubbedBytes
     -- ^ The decrypted key
 rsaDecrypt blinder rsaKey a ct = BA.convert <$> case a of
-    RSA1_5   -> mapErr (PKCS15.decrypt blinder rsaKey bs)
-    RSA_OAEP -> mapErr (OAEP.decrypt blinder (OAEP.defaultOAEPParams SHA1) rsaKey bs)
-    _        -> Left (BadAlgorithm "Not an RSA algorithm")
+    RSA1_5       -> mapErr (PKCS15.decrypt blinder rsaKey bs)
+    RSA_OAEP     -> mapErr (OAEP.decrypt blinder (OAEP.defaultOAEPParams SHA1) rsaKey bs)
+    RSA_OAEP_256 -> mapErr (OAEP.decrypt blinder (OAEP.defaultOAEPParams SHA256) rsaKey bs)
+    _            -> Left (BadAlgorithm "Not an RSA algorithm")
   where
     bs = BA.convert ct
     mapErr = mapLeft (const BadCrypto)
