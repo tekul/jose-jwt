@@ -33,7 +33,7 @@ import Control.Monad.Trans.Except
 import qualified Crypto.PubKey.ECC.ECDSA as ECDSA
 import Crypto.PubKey.RSA (PrivateKey(..))
 import Crypto.Random (MonadRandom)
-import Data.Aeson (decodeStrict')
+import Data.Aeson (decodeStrict',FromJSON)
 import Data.ByteString (ByteString)
 import Data.Maybe (isNothing)
 import qualified Data.ByteString.Char8 as BC
@@ -122,14 +122,17 @@ decode keySet encoding jwt = runExceptT $ do
     checkKeys ks = return ks
 
 
--- | Convenience function to return the claims contained in a JWT.
--- This is required in situations such as client assertion authentication,
--- where the contents of the JWT may be required in order to work out
+-- | Convenience function to return the claims contained in a JWS.
+-- This is needed in situations such as client assertion authentication,
+-- <https://tools.ietf.org/html/rfc7523>, where the contents of the JWT,
+-- such as the @sub@ claim, may be required in order to work out
 -- which key should be used to verify the token.
+--
 -- Obviously this should not be used by itself to decode a token since
 -- no integrity checking is done and the contents may be forged.
-decodeClaims :: ByteString
-             -> Either JwtError (JwtHeader, JwtClaims)
+decodeClaims :: (FromJSON a)
+    => ByteString
+    -> Either JwtError (JwtHeader, a)
 decodeClaims jwt = do
     let components = BC.split '.' jwt
     when (length components /= 3) $ Left $ BadDots 2

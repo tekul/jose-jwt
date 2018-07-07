@@ -57,6 +57,10 @@ spec =
           let Just k21 = decodeStrict' a21jwk
           fstWithRNG (decode [k21] (Just (JwsEncoding RS256)) a21) @?= (Right $ Jws (defJwsHdr {jwsAlg = RS256}, a21Payload))
 
+        it "decodes the successfully without verification" $ do
+           let Right (_, claims) = decodeClaims a21 :: Either JwtError (JwtHeader, JwtClaims)
+           jwtIss claims @?= Just "joe"
+
         it "encodes the payload to the expected JWT" $ do
           let sign = either (error "Sign failed") id . RSAPKCS15.sign Nothing (Just SHA256) rsaPrivateKey
           signWithHeader sign a21Header a21Payload @?= a21
@@ -69,6 +73,8 @@ spec =
 
         it "encodes/decodes using RS512" $
           rsaRoundTrip RS512 a21Payload
+
+
 
       context "when using JWS Appendix A.3 data" $ do
         let a31decoded = Right (defJwsHdr {jwsAlg = ES256}, a31Payload)
