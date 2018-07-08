@@ -24,6 +24,7 @@ module Jose.Jwt
     , encode
     , decode
     , decodeClaims
+    , decodeJwt
     )
 where
 
@@ -33,7 +34,7 @@ import Control.Monad.Trans.Except
 import qualified Crypto.PubKey.ECC.ECDSA as ECDSA
 import Crypto.PubKey.RSA (PrivateKey(..))
 import Crypto.Random (MonadRandom)
-import Data.Aeson (decodeStrict')
+import Data.Aeson (decodeStrict',FromJSON)
 import Data.ByteString (ByteString)
 import Data.Maybe (isNothing)
 import qualified Data.ByteString.Char8 as BC
@@ -130,7 +131,16 @@ decode keySet encoding jwt = runExceptT $ do
 -- no integrity checking is done and the contents may be forged.
 decodeClaims :: ByteString
              -> Either JwtError (JwtHeader, JwtClaims)
-decodeClaims jwt = do
+decodeClaims = decodeJwt
+
+-- | This is a function similar to @decodeClaims@ but polymorphic.
+-- So you could decode the full JWT as you wish. You'll only need to provide
+-- a FromJSON instance.
+-- Obviously this should not be used by itself to decode a token since
+-- no integrity checking is done and the contents may be forged.
+decodeJwt :: (FromJSON a) => ByteString
+          -> Either JwtError (JwtHeader, a)
+decodeJwt jwt = do
     let components = BC.split '.' jwt
     when (length components /= 3) $ Left $ BadDots 2
     hdr    <- B64.decode (head components) >>= parseHeader
