@@ -2,7 +2,8 @@
 {-# OPTIONS_HADDOCK prune #-}
 
 module Jose.Jwk
-    ( KeyUse (..)
+    ( EcCurve (..)
+    , KeyUse (..)
     , KeyId
     , Jwk (..)
     , JwkSet (..)
