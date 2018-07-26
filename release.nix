@@ -1,4 +1,4 @@
-{ compiler ? "ghc822" }:
+{ compiler ? "ghc843" }:
 
 let
   pkgs = import <nixpkgs> {};
