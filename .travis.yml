@@ -27,18 +27,15 @@ addons:
 
 matrix:
   include:
+    - compiler: "ghc-8.4.3"
+    # env: TEST=--disable-tests BENCH=--disable-benchmarks
+      addons: {apt: {packages: [*apt_packages,cabal-install-2.2,ghc-8.4.3], sources: [hvr-ghc]}}
     - compiler: "ghc-8.2.2"
     # env: TEST=--disable-tests BENCH=--disable-benchmarks
       addons: {apt: {packages: [*apt_packages,cabal-install-2.0,ghc-8.2.2], sources: [hvr-ghc]}}
     - compiler: "ghc-8.0.2"
     # env: TEST=--disable-tests BENCH=--disable-benchmarks
       addons: {apt: {packages: [*apt_packages,cabal-install-2.0,ghc-8.0.2], sources: [hvr-ghc]}}
-    - compiler: "ghc-7.10.3"
-    # env: TEST=--disable-tests BENCH=--disable-benchmarks
-      addons: {apt: {packages: [*apt_packages,cabal-install-2.0,ghc-7.10.3], sources: [hvr-ghc]}}
-    - compiler: "ghc-7.8.4"
-    # env: TEST=--disable-tests BENCH=--disable-benchmarks
-      addons: {apt: {packages: [*apt_packages,cabal-install-2.0,ghc-7.8.4], sources: [hvr-ghc]}}
 
 before_install:
  - HC=${CC}
@@ -60,6 +57,7 @@ install:
  - rm -fv cabal.project.local
  - rm -f cabal.project.freeze
  - cabal new-build -w ${HC} ${TEST} ${BENCH} --dep -j
+ - rm -rf .ghc.environment.* "."/dist
 
 # Here starts the actual work to be performed for the package under test;
 # any command which exits with a non-zero exit code causes the build to fail.
