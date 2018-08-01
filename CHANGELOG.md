@@ -1,3 +1,11 @@
+0.8.0
+-----
+
+* The result of the `Jose.Jwt.decodeClaims` function is now polymorphic so it can be used with
+any `FromJSON` type.
+* Only ghc 8 upwards are now supported.
+* the RSA-OAEP-256 algorithm is now supported.
+
 0.7.8
 -----
 
