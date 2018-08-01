@@ -1,6 +1,7 @@
 .cabal-sandbox
 .stack-work/
 cabal.sandbox.config
+.ghc.environment*
 *.swp
 dist/
 dist-newstyle/
