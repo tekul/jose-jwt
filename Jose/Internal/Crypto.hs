@@ -12,6 +12,7 @@ module Jose.Internal.Crypto
     , rsaVerify
     , rsaEncrypt
     , rsaDecrypt
+    , ecSign
     , ecVerify
     , encryptPayload
     , decryptPayload
@@ -30,7 +31,7 @@ import           Crypto.Error
 import           Crypto.Cipher.AES
 import           Crypto.Cipher.Types hiding (IV)
 import           Crypto.Hash.Algorithms
-import           Crypto.Number.Serialize (os2ip)
+import           Crypto.Number.Serialize (os2ip, i2osp)
 import qualified Crypto.PubKey.ECC.ECDSA as ECDSA
 import qualified Crypto.PubKey.RSA as RSA
 import qualified Crypto.PubKey.RSA.PKCS15 as PKCS15
@@ -43,6 +44,8 @@ import qualified Data.ByteArray as BA
 import           Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import           Data.Either.Combinators
+import           Data.Function (on)
+import           Data.Monoid ((<>))
 import qualified Data.Serialize as Serialize
 import qualified Data.Text as T
 import           Data.Word (Word64, Word8)
@@ -105,6 +108,24 @@ rsaVerify a key msg sig = case a of
     _     -> False
   where
     go h = PKCS15.verify (Just h) key msg sig
+
+-- | Sign a message using an ECDSA private key.
+--
+-- The failure condition should only happen if the algorithm is not an ECDSA algorithm in
+-- in the JWT standard, or the k value is greater than the group order of the curve
+ecSign :: Integer
+       -> JwsAlg
+       -> ECDSA.PrivateKey
+       -> ByteString
+       -> Either JwtError ByteString
+ecSign k a key msg = case a of
+    ES256 -> go SHA256
+    ES384 -> go SHA384
+    ES512 -> go SHA512
+    _     -> Left . BadAlgorithm . T.pack $ "Not a valid JWT ECDSA algorithm: " ++ show a
+  where
+    go h = maybe (Left BadCrypto) (Right . serSig) $ ECDSA.signWith k key h msg
+    serSig = liftA2 ((<>) `on` i2osp) ECDSA.sign_r ECDSA.sign_s
 
 -- | Verify the signature for a message using an EC public key.
 --

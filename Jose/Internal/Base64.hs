@@ -5,7 +5,7 @@
 
 module Jose.Internal.Base64 where
 
-import Control.Monad.Error
+import Control.Monad.Except
 import Data.ByteArray
 import Data.ByteArray.Encoding
 
