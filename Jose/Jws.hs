@@ -21,6 +21,7 @@ module Jose.Jws
     , hmacDecode
     , rsaEncode
     , rsaDecode
+    , ecEncode
     , ecDecode
     )
 where
@@ -51,7 +52,11 @@ jwkEncode :: MonadRandom m
 jwkEncode a key payload = case key of
     RsaPrivateJwk kPr kid _ _   -> rsaEncodeInternal a kPr (sigTarget a kid payload)
     SymmetricJwk  k   kid _ _   -> return $ hmacEncodeInternal a k (sigTarget a kid payload)
-    EcPrivateJwk  kp  kid _ _ c -> ecEncodeInternal a kp (sigTarget a kid payload) (curve c)
+    EcPrivateJwk  kp  kid _ _ c -> 
+        let (ECDSA.KeyPair keyCurve _ _) = kp
+        in if keyCurve == curve c
+            then ecEncodeInternal a kp (sigTarget a kid payload)
+            else return . Left $ KeyError "Curve in Cryptonite Key is incompatible with JWK curve"
     _                           -> return $ Left $ BadAlgorithm "EC signing is not supported"
   where
     curve = \case
@@ -105,19 +110,28 @@ rsaDecode :: PublicKey            -- ^ The key to check the signature with
           -> Either JwtError Jws  -- ^ The decoded token if successful
 rsaDecode key = decode (`rsaVerify` key)
 
+ecEncode :: MonadRandom m
+         => JwsAlg
+         -> ECDSA.KeyPair
+         -> ByteString
+         -> m (Either JwtError Jwt)
+ecEncode a kp payload = ecEncodeInternal a kp (sigTarget a Nothing (Claims payload))
+
 ecEncodeInternal :: MonadRandom m
                  => JwsAlg
                  -> ECDSA.KeyPair
                  -> ByteString
-                 -> ECC.Curve
                  -> m (Either JwtError Jwt)
-ecEncodeInternal a kp msg curve = do
+ecEncodeInternal a kp st = do
     k <- os2ip <$> (getRandomBytes 32 :: MonadRandom m => m ByteString)
     if k >= (ECC.ecc_n . ECC.common_curve $ curve)
-        then ecEncodeInternal a kp msg curve
-        else return $ case ecSign k a (ECDSA.toPrivateKey kp) msg of
-            Right sig -> Right . Jwt $ B.concat [msg, ".", B64.encode sig]
+        then ecEncodeInternal a kp st
+        else return $ case ecSign k a (ECDSA.toPrivateKey kp) st of
+            Right sig -> Right . Jwt $ B.concat [st, ".", B64.encode sig]
             Left e -> Left e
+  where
+    (ECDSA.KeyPair curve _ _) = kp
+
 
 
 -- | Decode and validate an EC signed JWS
