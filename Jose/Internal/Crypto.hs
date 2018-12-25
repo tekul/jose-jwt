@@ -38,11 +38,11 @@ import qualified Crypto.PubKey.RSA.OAEP as OAEP
 import           Crypto.Random (MonadRandom, getRandomBytes)
 import           Crypto.MAC.HMAC (HMAC (..), hmac)
 import           Data.Bits (xor)
+import           Data.Bifunctor (first)
 import           Data.ByteArray (ByteArray, ScrubbedBytes)
 import qualified Data.ByteArray as BA
 import           Data.ByteString (ByteString)
 import qualified Data.ByteString as B
-import           Data.Either.Combinators
 import qualified Data.Serialize as Serialize
 import qualified Data.Text as T
 import           Data.Word (Word64, Word8)
@@ -50,6 +50,10 @@ import           Data.Word (Word64, Word8)
 import           Jose.Jwa
 import           Jose.Types (JwtError(..))
 import           Jose.Internal.Parser (IV(..), Tag(..))
+
+rightToMaybe :: Either a b -> Maybe b
+rightToMaybe (Right x) = Just x
+rightToMaybe Left{}    = Nothing
 
 -- | Sign a message with an HMAC key.
 hmacSign :: JwsAlg      -- ^ HMAC algorithm to use
@@ -167,7 +171,7 @@ rsaEncrypt k a msg = fmap BA.convert <$> case a of
     _            -> return (Left (BadAlgorithm "Not an RSA algorithm"))
   where
     bs = BA.convert msg
-    mapErr = fmap (mapLeft (const BadCrypto))
+    mapErr = fmap (first (const BadCrypto))
 
 -- | Decrypts an RSA encrypted message.
 rsaDecrypt :: ByteArray ct
@@ -187,7 +191,7 @@ rsaDecrypt blinder rsaKey a ct = BA.convert <$> case a of
     _            -> Left (BadAlgorithm "Not an RSA algorithm")
   where
     bs = BA.convert ct
-    mapErr = mapLeft (const BadCrypto)
+    mapErr = first (const BadCrypto)
 
 -- Dummy type to constrain Cipher type
 data C c = C
