@@ -17,6 +17,7 @@ module Jose.Internal.Parser
 where
 
 import           Control.Applicative
+import           Data.Bifunctor (first)
 import Data.Aeson (eitherDecodeStrict')
 import           Data.Attoparsec.ByteString (Parser)
 import qualified Data.Attoparsec.ByteString as P
@@ -24,7 +25,6 @@ import qualified Data.Attoparsec.ByteString.Char8 as PC
 import           Data.ByteArray.Encoding (convertFromBase, Base(..))
 import           Data.ByteString (ByteString)
 import qualified Data.ByteString as B
-import           Data.Either.Combinators (mapLeft)
 
 import           Jose.Jwa
 import           Jose.Types (JwtError(..), JwtHeader(..), JwsHeader(..), JweHeader(..))
@@ -55,7 +55,7 @@ newtype EncryptedCEK = EncryptedCEK ByteString
 
 
 parseJwt :: ByteString -> Either JwtError DecodableJwt
-parseJwt bs = mapLeft (const BadCrypto) $ P.parseOnly jwt bs
+parseJwt bs = first (const BadCrypto) $ P.parseOnly jwt bs
 
 
 jwt :: Parser DecodableJwt
