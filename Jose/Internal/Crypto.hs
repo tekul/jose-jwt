@@ -31,7 +31,7 @@ import           Crypto.Error
 import           Crypto.Cipher.AES
 import           Crypto.Cipher.Types hiding (IV)
 import           Crypto.Hash.Algorithms
-import           Crypto.Number.Serialize (os2ip, i2osp)
+import           Crypto.Number.Serialize (os2ip, i2ospOf_)
 import qualified Crypto.PubKey.ECC.ECDSA as ECDSA
 import qualified Crypto.PubKey.RSA as RSA
 import qualified Crypto.PubKey.RSA.PKCS15 as PKCS15
@@ -125,7 +125,7 @@ ecSign k a key msg = case a of
     _     -> Left . BadAlgorithm . T.pack $ "Not a valid JWT ECDSA algorithm: " ++ show a
   where
     go h = maybe (Left BadCrypto) (Right . serSig) $ ECDSA.signWith k key h msg
-    serSig = liftA2 ((<>) `on` i2osp) ECDSA.sign_r ECDSA.sign_s
+    serSig = liftA2 ((<>) `on` i2ospOf_ 32) ECDSA.sign_r ECDSA.sign_s
 
 -- | Verify the signature for a message using an EC public key.
 --
