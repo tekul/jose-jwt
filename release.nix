@@ -1,10 +1,15 @@
-{ compiler ? "ghc843" }:
+{ compiler ? "default" }:
 
 let
   pkgs = import <nixpkgs> {};
   dontCheck = pkgs.haskell.lib.dontCheck;
-  haskellPkgs = pkgs.haskell.packages."${compiler}".extend (self: super: {
-    jose-jwt= self.callPackage ./jose-jwt.nix {};
+  doBenchmark = pkgs.haskell.lib.doBenchmark;
+  hPkgs = if compiler == "default"
+              then pkgs.haskellPackages
+              else pkgs.haskell.packages.${compiler};
+
+  haskellPkgs = hPkgs.extend (self: super: {
+    jose-jwt = doBenchmark( self.callPackage ./jose-jwt.nix {} );
   });
 in
   {

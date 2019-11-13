@@ -1,20 +1,20 @@
 { mkDerivation, aeson, attoparsec, base, bytestring, cereal
-, containers, criterion, cryptonite, doctest, either, hspec, HUnit
-, memory, mtl, QuickCheck, stdenv, text, time, transformers
+, containers, criterion, cryptonite, doctest, hspec, HUnit, memory
+, mtl, QuickCheck, stdenv, text, time, transformers
 , transformers-compat, unordered-containers, vector
 }:
 mkDerivation {
   pname = "jose-jwt";
-  version = "0.7.7";
+  version = "0.8.0";
   src = ./.;
   libraryHaskellDepends = [
     aeson attoparsec base bytestring cereal containers cryptonite
-    either memory mtl text time transformers transformers-compat
+    memory mtl text time transformers transformers-compat
     unordered-containers vector
   ];
   testHaskellDepends = [
-    aeson base bytestring cryptonite doctest either hspec HUnit memory
-    mtl QuickCheck text unordered-containers vector
+    aeson base bytestring cryptonite doctest hspec HUnit memory mtl
+    QuickCheck text unordered-containers vector
   ];
   benchmarkHaskellDepends = [ base bytestring criterion cryptonite ];
   homepage = "http://github.com/tekul/jose-jwt";
