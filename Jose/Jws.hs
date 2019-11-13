@@ -21,6 +21,7 @@ module Jose.Jws
     , rsaEncode
     , rsaDecode
     , ecDecode
+    , ed25519Encode
     , ed25519Decode
     )
 where
@@ -51,6 +52,7 @@ jwkEncode :: MonadRandom m
 jwkEncode a key payload = case key of
     RsaPrivateJwk kPr kid _ _ -> rsaEncodeInternal a kPr (sigTarget a kid payload)
     SymmetricJwk  k   kid _ _ -> return $ hmacEncodeInternal a k (sigTarget a kid payload)
+    Ed25519PrivateJwk kPr kPub kid -> return . Right $ ed25519EncodeInternal kPr kPub (sigTarget EdDSA kid payload)
     _                         -> return $ Left $ BadAlgorithm "EC signing is not supported"
 
 -- | Create a JWS with an HMAC for validation.
@@ -98,6 +100,25 @@ ed25519Decode :: Ed25519.PublicKey
               -> ByteString
               -> Either JwtError Jws
 ed25519Decode key = decode (`ed25519Verify` key)
+
+
+ed25519Encode :: Ed25519.SecretKey
+              -> Ed25519.PublicKey
+              -> ByteString
+              -> Jwt
+ed25519Encode kPr kPub payload =
+    ed25519EncodeInternal kPr kPub (sigTarget EdDSA Nothing (Claims payload))
+
+
+ed25519EncodeInternal :: Ed25519.SecretKey
+                      -> Ed25519.PublicKey
+                      -> ByteString
+                      -> Jwt
+ed25519EncodeInternal kPr kPub signMe =
+  let
+     sig = Ed25519.sign kPr kPub signMe
+  in
+     Jwt (B.concat [signMe, ".", B64.encode sig])
 
 -- | Decode and validate an RSA signed JWS.
 rsaDecode :: PublicKey            -- ^ The key to check the signature with

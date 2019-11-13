@@ -32,6 +32,7 @@ import qualified Crypto.PubKey.ECC.Types as ECC
 import           Crypto.Number.Serialize
 import           Data.Aeson (genericToJSON, Value(..), FromJSON(..), ToJSON(..), withText)
 import           Data.Aeson.Types (Parser, Options (..), defaultOptions)
+import qualified Data.ByteArray as BA
 import           Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import           Data.Maybe (isNothing)
@@ -62,9 +63,9 @@ data Jwk = RsaPublicJwk  !RSA.PublicKey   !(Maybe KeyId) !(Maybe KeyUse) !(Maybe
          | RsaPrivateJwk !RSA.PrivateKey  !(Maybe KeyId) !(Maybe KeyUse) !(Maybe Alg)
          | EcPublicJwk   !ECDSA.PublicKey !(Maybe KeyId) !(Maybe KeyUse) !(Maybe Alg) !EcCurve
          | EcPrivateJwk  !ECDSA.KeyPair   !(Maybe KeyId) !(Maybe KeyUse) !(Maybe Alg) !EcCurve
-         | Ed25519PrivateJwk !Ed25519.SecretKey !(Maybe KeyId)
+         | Ed25519PrivateJwk !Ed25519.SecretKey !Ed25519.PublicKey !(Maybe KeyId)
          | Ed25519PublicJwk !Ed25519.PublicKey !(Maybe KeyId)
-         | Ed448PrivateJwk !Ed448.SecretKey !(Maybe KeyId)
+         | Ed448PrivateJwk !Ed448.SecretKey !Ed448.PublicKey !(Maybe KeyId)
          | Ed448PublicJwk !Ed448.PublicKey !(Maybe KeyId)
          | SymmetricJwk  !ByteString      !(Maybe KeyId) !(Maybe KeyUse) !(Maybe Alg)
            deriving (Show, Eq)
@@ -198,9 +199,9 @@ ecCurveName c = case c of
 
 jwkId :: Jwk -> Maybe KeyId
 jwkId key = case key of
-    Ed25519PrivateJwk _ keyId -> keyId
+    Ed25519PrivateJwk _ _ keyId -> keyId
     Ed25519PublicJwk _ keyId -> keyId
-    Ed448PrivateJwk _ keyId -> keyId
+    Ed448PrivateJwk _ _ keyId -> keyId
     Ed448PublicJwk _ keyId -> keyId
     RsaPublicJwk  _ keyId _ _ -> keyId
     RsaPrivateJwk _ keyId _ _ -> keyId
@@ -210,9 +211,9 @@ jwkId key = case key of
 
 jwkUse :: Jwk -> Maybe KeyUse
 jwkUse key = case key of
-    Ed25519PrivateJwk _ _ -> Just Sig
+    Ed25519PrivateJwk _ _ _ -> Just Sig
     Ed25519PublicJwk _ _ -> Just Sig
-    Ed448PrivateJwk _ _ -> Just Sig
+    Ed448PrivateJwk _ _ _ -> Just Sig
     Ed448PublicJwk _ _ -> Just Sig
     RsaPublicJwk  _ _ u _ -> u
     RsaPrivateJwk _ _ u _ -> u
@@ -222,9 +223,9 @@ jwkUse key = case key of
 
 jwkAlg :: Jwk -> Maybe Alg
 jwkAlg key = case key of
-    Ed25519PrivateJwk _ _ -> Just (Signed EdDSA)
+    Ed25519PrivateJwk _ _ _ -> Just (Signed EdDSA)
     Ed25519PublicJwk _ _ -> Just (Signed EdDSA)
-    Ed448PrivateJwk _ _ -> Just (Signed EdDSA)
+    Ed448PrivateJwk _ _ _ -> Just (Signed EdDSA)
     Ed448PublicJwk _ _ -> Just (Signed EdDSA)
     RsaPublicJwk  _ _ _ a -> a
     RsaPrivateJwk _ _ _ a -> a
@@ -308,6 +309,38 @@ instance ToJSON Jwk where
                 , dq = i2b $ RSA.private_dQ   privKey
                 , qi = i2b $ RSA.private_qinv privKey
                 }
+
+        Ed25519PrivateJwk kPr kPub kid_ -> defJwk
+            { kty = Okp
+            , crv = Just "Ed25519"
+            , d = Just (JwkBytes (BA.convert kPr))
+            , x = Just (JwkBytes (BA.convert kPub))
+            , kid = kid_
+            }
+
+        Ed25519PublicJwk kPub kid_ -> defJwk
+            { kty = Okp
+            , crv = Just "Ed25519"
+            , x = Just (JwkBytes (BA.convert kPub))
+            , kid = kid_
+            }
+
+        Ed448PrivateJwk kPr kPub kid_ -> defJwk
+            { kty = Okp
+            , crv = Just "Ed25519"
+            , d = Just (JwkBytes (BA.convert kPr))
+            , x = Just (JwkBytes (BA.convert kPub))
+            , kid = kid_
+            }
+
+        Ed448PublicJwk kPub kid_ -> defJwk
+            { kty = Okp
+            , crv = Just "Ed25519"
+            , x = Just (JwkBytes (BA.convert kPub))
+            , kid = kid_
+            }
+
+
         SymmetricJwk bs mId mUse mAlg -> defJwk
             { kty = Oct
             , k   = Just $ JwkBytes bs
@@ -435,11 +468,20 @@ createJwk J {..} = case kty of
                   secKey <- createOkpKey Ed25519.secretKey (bytes db)
                   pubKey <- createOkpKey Ed25519.publicKey (bytes x')
                   unless (pubKey == Ed25519.toPublic secKey) (Left "Public key x doesn't match private key d")
-                  return (Ed25519PrivateJwk secKey kid)
+                  return (Ed25519PrivateJwk secKey pubKey kid)
               Nothing -> do
                   pubKey <- createOkpKey Ed25519.publicKey (bytes x')
                   return (Ed25519PublicJwk pubKey kid)
-          "Ed448" -> undefined
+          "Ed448" -> case d of
+              Just db -> do
+                  secKey <- createOkpKey Ed448.secretKey (bytes db)
+                  pubKey <- createOkpKey Ed448.publicKey (bytes x')
+                  unless (pubKey == Ed448.toPublic secKey) (Left "Public key x doesn't match private key d")
+                  return (Ed448PrivateJwk secKey pubKey kid)
+              Nothing -> do
+                  pubKey <- createOkpKey Ed448.publicKey (bytes x')
+                  return (Ed448PublicJwk pubKey kid)
+
           _ -> Left "Unknown or unsupported OKP type"
     Ec  -> do
         crv' <- note "crv is required for an elliptic curve key" crv

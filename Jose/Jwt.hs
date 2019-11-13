@@ -110,6 +110,7 @@ decode keySet encoding jwt = runExceptT $ do
     decodeWithJws :: MonadRandom m => Jwk -> ExceptT JwtError m (Maybe JwtContent)
     decodeWithJws k = either (const $ return Nothing) (return . Just . Jws) $ case k of
         Ed25519PublicJwk kPub _ -> Jws.ed25519Decode kPub jwt
+        Ed25519PrivateJwk _ kPub _ -> Jws.ed25519Decode kPub jwt
         RsaPublicJwk  kPub _ _ _ -> Jws.rsaDecode kPub jwt
         RsaPrivateJwk kPr  _ _ _ -> Jws.rsaDecode (private_pub kPr) jwt
         EcPublicJwk   kPub _ _ _ _ -> Jws.ecDecode kPub jwt

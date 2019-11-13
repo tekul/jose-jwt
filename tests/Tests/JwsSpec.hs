@@ -12,11 +12,13 @@ import qualified Data.ByteString.Char8 ()
 import Data.Word (Word64)
 import Crypto.Hash.Algorithms (SHA256(..))
 import Crypto.MAC.HMAC (HMAC, hmac)
+import qualified Crypto.PubKey.Ed25519 as Ed25519
 import qualified Crypto.PubKey.RSA as RSA
 import qualified Crypto.PubKey.RSA.PKCS15 as RSAPKCS15
 import Crypto.Random (withDRG, drgNewTest)
 
 import Jose.Jwt
+import Jose.Jwk (Jwk(..))
 import Jose.Jwa
 import qualified Jose.Internal.Base64 as B64
 import qualified Jose.Jws as Jws
@@ -74,8 +76,6 @@ spec = do
         it "encodes/decodes using RS512" $
           rsaRoundTrip RS512 a21Payload
 
-
-
       context "when using JWS Appendix A.3 data" $ do
         let a31decoded = Right (defJwsHdr {jwsAlg = ES256}, a31Payload)
         it "decodes the JWT to the expected header and payload" $ do
@@ -93,9 +93,18 @@ spec = do
     describe "Ed25519 signing and verification" $ do
       context "When using RFC8037 Appendix A data" $ do
         let ed25519JwtDecoded = Right (defJwsHdr { jwsAlg = EdDSA }, ed25519Payload)
+            Just pubKey = decodeStrict' ed25519PubJwk
+            Just (secKey@(Ed25519PrivateJwk kPr kPub _)) = decodeStrict' ed25519SecJwk
         it "decodes the JWT to the expected header and payload" $ do
-          let Just pubKey = decodeStrict' ed25519PubJwk
           fstWithRNG (decode [pubKey] Nothing ed25519Jwt) @?= fmap Jws ed25519JwtDecoded
+          fstWithRNG (decode [secKey] Nothing ed25519Jwt) @?= fmap Jws ed25519JwtDecoded
+
+        it "encodes the payload to the exected JWT" $ do
+          -- Don't really need signWithHeader here, since out function gives the correct value
+          signWithHeader (Ed25519.sign kPr kPub) ed25519Hdr ed25519Payload @?= ed25519Jwt
+          Jws.ed25519Encode kPr kPub ed25519Payload @?= Jwt ed25519Jwt
+
+
 
 signWithHeader sign hdr payload = B.intercalate "." [hdrPayload, B64.encode $ sign hdrPayload]
   where
