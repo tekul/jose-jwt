@@ -21,11 +21,13 @@ module Jose.Jws
     , rsaEncode
     , rsaDecode
     , ecDecode
+    , ed25519Decode
     )
 where
 
 import Control.Applicative
 import qualified Crypto.PubKey.ECC.ECDSA as ECDSA
+import qualified Crypto.PubKey.Ed25519 as Ed25519
 import Crypto.PubKey.RSA (PrivateKey(..), PublicKey(..), generateBlinder)
 import Crypto.Random (MonadRandom)
 import Data.ByteString (ByteString)
@@ -90,6 +92,12 @@ rsaEncodeInternal a pk st = do
     sign b = case rsaSign (Just b) a pk st of
         Right sig -> Right . Jwt $ B.concat [st, ".", B64.encode sig]
         Left e    -> Left e
+
+
+ed25519Decode :: Ed25519.PublicKey
+              -> ByteString
+              -> Either JwtError Jws
+ed25519Decode key = decode (`ed25519Verify` key)
 
 -- | Decode and validate an RSA signed JWS.
 rsaDecode :: PublicKey            -- ^ The key to check the signature with

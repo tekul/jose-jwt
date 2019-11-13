@@ -22,9 +22,12 @@ where
 
 import           Control.Applicative (pure)
 import           Control.Monad (unless)
+import           Crypto.Error (CryptoFailable(..))
 import           Crypto.Random (MonadRandom, getRandomBytes)
 import qualified Crypto.PubKey.RSA as RSA
 import qualified Crypto.PubKey.ECC.ECDSA as ECDSA
+import qualified Crypto.PubKey.Ed25519 as Ed25519
+import qualified Crypto.PubKey.Ed448 as Ed448
 import qualified Crypto.PubKey.ECC.Types as ECC
 import           Crypto.Number.Serialize
 import           Data.Aeson (genericToJSON, Value(..), FromJSON(..), ToJSON(..), withText)
@@ -42,6 +45,7 @@ import           Jose.Types (KeyId, JwsHeader(..), JweHeader(..))
 
 data KeyType = Rsa
              | Ec
+             | Okp
              | Oct
                deriving (Eq)
 
@@ -58,6 +62,10 @@ data Jwk = RsaPublicJwk  !RSA.PublicKey   !(Maybe KeyId) !(Maybe KeyUse) !(Maybe
          | RsaPrivateJwk !RSA.PrivateKey  !(Maybe KeyId) !(Maybe KeyUse) !(Maybe Alg)
          | EcPublicJwk   !ECDSA.PublicKey !(Maybe KeyId) !(Maybe KeyUse) !(Maybe Alg) !EcCurve
          | EcPrivateJwk  !ECDSA.KeyPair   !(Maybe KeyId) !(Maybe KeyUse) !(Maybe Alg) !EcCurve
+         | Ed25519PrivateJwk !Ed25519.SecretKey !(Maybe KeyId)
+         | Ed25519PublicJwk !Ed25519.PublicKey !(Maybe KeyId)
+         | Ed448PrivateJwk !Ed448.SecretKey !(Maybe KeyId)
+         | Ed448PublicJwk !Ed448.PublicKey !(Maybe KeyId)
          | SymmetricJwk  !ByteString      !(Maybe KeyId) !(Maybe KeyUse) !(Maybe Alg)
            deriving (Show, Eq)
 
@@ -100,6 +108,10 @@ canDecodeJws hdr jwk = jwkUse jwk /= Just Enc &&
     keyIdCompatible (jwsKid hdr) jwk &&
     algCompatible (Signed (jwsAlg hdr)) jwk &&
     case (jwsAlg hdr, jwk) of
+        (EdDSA, Ed25519PublicJwk {}) -> True
+        (EdDSA, Ed25519PrivateJwk {}) -> True
+        (EdDSA, Ed448PublicJwk {}) -> True
+        (EdDSA, Ed448PrivateJwk {}) -> True
         (RS256, RsaPublicJwk {}) -> True
         (RS384, RsaPublicJwk {}) -> True
         (RS512, RsaPublicJwk {}) -> True
@@ -121,6 +133,8 @@ canEncodeJws :: JwsAlg -> Jwk -> Bool
 canEncodeJws a jwk = jwkUse jwk /= Just Enc &&
     algCompatible (Signed a) jwk &&
     case (a, jwk) of
+        (EdDSA, Ed25519PrivateJwk {}) -> True
+        (EdDSA, Ed448PrivateJwk {}) -> True
         (RS256, RsaPrivateJwk {}) -> True
         (RS384, RsaPrivateJwk {}) -> True
         (RS512, RsaPrivateJwk {}) -> True
@@ -169,14 +183,25 @@ algCompatible a k' = case jwkAlg k' of
     Nothing -> True
     Just ka -> a == ka
 
-curve :: EcCurve -> ECC.Curve
-curve c = ECC.getCurveByName $ case c of
-    P_256 -> ECC.SEC_p256r1
-    P_384 -> ECC.SEC_p384r1
-    P_521 -> ECC.SEC_p521r1
+ecCurve :: Text -> Maybe (EcCurve, ECC.Curve)
+ecCurve c = case c of
+    "P-256" -> Just (P_256, ECC.getCurveByName ECC.SEC_p256r1)
+    "P-384" -> Just (P_384, ECC.getCurveByName ECC.SEC_p384r1)
+    "P-521" -> Just (P_521, ECC.getCurveByName ECC.SEC_p521r1)
+    _ -> Nothing
+
+ecCurveName :: EcCurve -> Text
+ecCurveName c = case c of
+    P_256 -> "P-256"
+    P_384 -> "P-384"
+    P_521 -> "P-521"
 
 jwkId :: Jwk -> Maybe KeyId
 jwkId key = case key of
+    Ed25519PrivateJwk _ keyId -> keyId
+    Ed25519PublicJwk _ keyId -> keyId
+    Ed448PrivateJwk _ keyId -> keyId
+    Ed448PublicJwk _ keyId -> keyId
     RsaPublicJwk  _ keyId _ _ -> keyId
     RsaPrivateJwk _ keyId _ _ -> keyId
     EcPublicJwk   _ keyId _ _ _ -> keyId
@@ -185,6 +210,10 @@ jwkId key = case key of
 
 jwkUse :: Jwk -> Maybe KeyUse
 jwkUse key = case key of
+    Ed25519PrivateJwk _ _ -> Just Sig
+    Ed25519PublicJwk _ _ -> Just Sig
+    Ed448PrivateJwk _ _ -> Just Sig
+    Ed448PublicJwk _ _ -> Just Sig
     RsaPublicJwk  _ _ u _ -> u
     RsaPrivateJwk _ _ u _ -> u
     EcPublicJwk   _ _ u _ _ -> u
@@ -193,12 +222,15 @@ jwkUse key = case key of
 
 jwkAlg :: Jwk -> Maybe Alg
 jwkAlg key = case key of
+    Ed25519PrivateJwk _ _ -> Just (Signed EdDSA)
+    Ed25519PublicJwk _ _ -> Just (Signed EdDSA)
+    Ed448PrivateJwk _ _ -> Just (Signed EdDSA)
+    Ed448PublicJwk _ _ -> Just (Signed EdDSA)
     RsaPublicJwk  _ _ _ a -> a
     RsaPrivateJwk _ _ _ a -> a
     EcPublicJwk   _ _ _ a _ -> a
     EcPrivateJwk  _ _ _ a _ -> a
     SymmetricJwk  _ _ _ a -> a
-
 
 
 newtype JwkBytes = JwkBytes {bytes :: ByteString} deriving (Show)
@@ -207,6 +239,7 @@ instance FromJSON KeyType where
     parseJSON = withText "KeyType" $ \t ->
         case t of
           "RSA" -> pure Rsa
+          "OKP" -> pure Okp
           "EC"  -> pure Ec
           "oct" -> pure Oct
           _     -> fail "unsupported key type"
@@ -214,6 +247,7 @@ instance FromJSON KeyType where
 instance ToJSON KeyType where
     toJSON kt = case kt of
                     Rsa -> String "RSA"
+                    Okp -> String "OKP"
                     Ec  -> String "EC"
                     Oct -> String "oct"
 
@@ -289,7 +323,7 @@ instance ToJSON Jwk where
             , kid = mId
             , use = mUse
             , alg = mAlg
-            , crv = Just c
+            , crv = Just (ecCurveName c)
             }
 
         EcPrivateJwk kp mId mUse mAlg c -> defJwk
@@ -300,7 +334,7 @@ instance ToJSON Jwk where
             , kid = mId
             , use = mUse
             , alg = mAlg
-            , crv = Just c
+            , crv = Just (ecCurveName c)
             }
       where
         i2b 0 = Nothing
@@ -336,7 +370,7 @@ data JwkData = J
     , dq  :: Maybe JwkBytes
     , qi  :: Maybe JwkBytes
     , k   :: Maybe JwkBytes
-    , crv :: Maybe EcCurve
+    , crv :: Maybe Text
     , x   :: Maybe JwkBytes
     , y   :: Maybe JwkBytes
     , use :: Maybe KeyUse
@@ -391,17 +425,37 @@ createJwk J {..} = case kty of
         unless (isNothing (sequence [n, e, d, p, q, dp, dq, qi])) (Left "RSA parameters can't be set for a symmetric key")
         checkNoEc
         return $ SymmetricJwk (bytes kb) kid use alg
+    Okp -> do
+        crv' <- note "crv is required for an OKP key" crv
+        x' <- note "x is required for an OKP key" x
+        unless (isNothing (sequence [n, e, p, q, dp, dq, qi])) (Left "RSA parameters can't be set for an OKP key")
+        case crv' of
+          "Ed25519" -> case d of
+              Just db -> do
+                  secKey <- createOkpKey Ed25519.secretKey (bytes db)
+                  pubKey <- createOkpKey Ed25519.publicKey (bytes x')
+                  unless (pubKey == Ed25519.toPublic secKey) (Left "Public key x doesn't match private key d")
+                  return (Ed25519PrivateJwk secKey kid)
+              Nothing -> do
+                  pubKey <- createOkpKey Ed25519.publicKey (bytes x')
+                  return (Ed25519PublicJwk pubKey kid)
+          "Ed448" -> undefined
+          _ -> Left "Unknown or unsupported OKP type"
     Ec  -> do
         crv' <- note "crv is required for an elliptic curve key" crv
-        let c = curve crv'
+        (crv'', c) <- note "crv must be a valid EC curve name" (ecCurve crv')
         ecPt <- ecPoint
         unless (isNothing (sequence [n, e, p, q, dp, dq, qi])) (Left "RSA parameters can't be set for an elliptic curve key")
         case d of
-            Nothing -> return $ EcPublicJwk (ECDSA.PublicKey c ecPt) kid use alg crv'
-            Just db -> return $ EcPrivateJwk (ECDSA.KeyPair c ecPt (os2ip (bytes db))) kid use alg crv'
+            Nothing -> return $ EcPublicJwk (ECDSA.PublicKey c ecPt) kid use alg crv''
+            Just db -> return $ EcPrivateJwk (ECDSA.KeyPair c ecPt (os2ip (bytes db))) kid use alg crv''
   where
     checkNoEc = unless (isNothing crv) (Left "Elliptic curve type can't be set for an RSA key") >>
        unless (isNothing (sequence [x, y])) (Left "Elliptic curve coordinates can't be set for an RSA key")
+    createOkpKey f ba = case f ba of
+       CryptoPassed k_ -> Right k_
+       _ -> Left "Invalid OKP key data"
+
     note err      = maybe (Left err) Right
     os2mip        = maybe 0 (os2ip . bytes)
     rsaPub nb eb  = let m  = os2ip $ bytes nb
