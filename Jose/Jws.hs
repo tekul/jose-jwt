@@ -52,7 +52,10 @@ jwkEncode :: MonadRandom m
 jwkEncode a key payload = case key of
     RsaPrivateJwk kPr kid _ _ -> rsaEncodeInternal a kPr (sigTarget a kid payload)
     SymmetricJwk  k   kid _ _ -> return $ hmacEncodeInternal a k (sigTarget a kid payload)
-    Ed25519PrivateJwk kPr kPub kid -> return . Right $ ed25519EncodeInternal kPr kPub (sigTarget EdDSA kid payload)
+    Ed25519PrivateJwk kPr kPub kid -> return $
+        case a of
+            EdDSA -> Right $ ed25519EncodeInternal kPr kPub (sigTarget EdDSA kid payload)
+            _ -> Left (KeyError "Algorithm cannot be used with an Ed25519 key")
     _                         -> return $ Left $ BadAlgorithm "EC signing is not supported"
 
 -- | Create a JWS with an HMAC for validation.
