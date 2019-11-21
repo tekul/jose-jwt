@@ -9,6 +9,7 @@ module Jose.Internal.Crypto
     ( hmacSign
     , hmacVerify
     , ed25519Verify
+    , ed448Verify
     , rsaSign
     , rsaVerify
     , rsaEncrypt
@@ -34,6 +35,7 @@ import           Crypto.Hash.Algorithms
 import           Crypto.Number.Serialize (os2ip)
 import qualified Crypto.PubKey.ECC.ECDSA as ECDSA
 import qualified Crypto.PubKey.Ed25519 as Ed25519
+import qualified Crypto.PubKey.Ed448 as Ed448
 import qualified Crypto.PubKey.RSA as RSA
 import qualified Crypto.PubKey.RSA.PKCS15 as PKCS15
 import qualified Crypto.PubKey.RSA.OAEP as OAEP
@@ -93,6 +95,23 @@ ed25519Verify EdDSA pubKey msg sig =
          Ed25519.verify pubKey msg sig_
        _ -> False
 ed25519Verify _ _ _ _ = False
+
+
+-- | Verify an Ed448 signed message
+ed448Verify :: JwsAlg
+            -> Ed448.PublicKey
+            -> ByteString
+            -- ^ The message/content
+            -> ByteString
+            -- ^ The signature to check
+            -> Bool
+            -- ^ Whether the signature is correct
+ed448Verify EdDSA pubKey msg sig =
+    case Ed448.signature sig of
+       CryptoPassed sig_ ->
+         Ed448.verify pubKey msg sig_
+       _ -> False
+ed448Verify _ _ _ _ = False
 
 
 -- | Sign a message using an RSA private key.

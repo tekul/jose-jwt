@@ -4,6 +4,7 @@ module Main where
 import Criterion.Main
 import Crypto.Random
 import qualified Crypto.PubKey.Ed25519 as Ed25519
+import qualified Crypto.PubKey.Ed448 as Ed448
 import Data.Word (Word64)
 import Jose.Jws
 import qualified Jose.Jwe as Jwe
@@ -21,7 +22,9 @@ msg = "The best laid schemes o' mice and men"
 main = do
     kwKek <- getRandomBytes 32 >>= \k -> return $ SymmetricJwk k Nothing Nothing Nothing :: IO Jwk
     ed25519PrivKey <- Ed25519.generateSecretKey
+    ed448PrivKey <- Ed448.generateSecretKey
     let ed25519PubKey = Ed25519.toPublic ed25519PrivKey
+        ed448PubKey = Ed448.toPublic ed448PrivKey
     Right rsaOAEPJwe <- Jwe.rsaEncode RSA_OAEP A256GCM jwsRsaPublicKey msg
     Right keywrapJwe <- Jwe.jwkEncode A256KW A256GCM kwKek (Claims msg)
 
@@ -29,6 +32,7 @@ main = do
       [ benchJwsHmac
       , benchJwsRsa
       , benchJwsEd25519 ed25519PrivKey ed25519PubKey
+      , benchJwsEd448 ed448PrivKey ed448PubKey
       , benchJweKeywrap (unJwt keywrapJwe) kwKek
       , benchJweRsa (unJwt rsaOAEPJwe)
       ]
@@ -52,7 +56,11 @@ benchJweKeywrap jwe jwk = bgroup "JWE-KW"
 
 
 benchJwsEd25519 kPr kPub = bgroup "Ed25519"
-    [ bench "encode Ed25519 " $ nf (unJwt . ed25519Encode kPr kPub) msg
+    [ bench "encode Ed25519" $ nf (unJwt . ed25519Encode kPr kPub) msg
+    ]
+
+benchJwsEd448 kPr kPub = bgroup "Ed448"
+    [ bench "encode Ed448" $ nf (unJwt . ed448Encode kPr kPub) msg
     ]
 
 benchJwsRsa = bgroup "JWS-RSA"

@@ -13,6 +13,7 @@ import Data.Word (Word64)
 import Crypto.Hash.Algorithms (SHA256(..))
 import Crypto.MAC.HMAC (HMAC, hmac)
 import qualified Crypto.PubKey.Ed25519 as Ed25519
+import qualified Crypto.PubKey.Ed448 as Ed448
 import qualified Crypto.PubKey.RSA as RSA
 import qualified Crypto.PubKey.RSA.PKCS15 as RSAPKCS15
 import Crypto.Random (withDRG, drgNewTest)
@@ -117,6 +118,21 @@ spec = do
           let badJwt = signWithHeader sign a21Header ed25519Payload
           fstWithRNG (Jwt.decode [pubKey] Nothing badJwt) @?= Left (KeyError "No suitable key was found to decode the JWT")
 
+    describe "Ed448 signing and verification" $ do
+      let Just pubKey = decodeStrict' ed448PubJwk
+          Just (secKey@(Ed448PrivateJwk kPr kPub _)) = decodeStrict' ed448SecJwk
+          sign = Ed448.sign kPr kPub
+
+      context "" $ do
+        it "JWT is encoded to the expected value" $
+          signWithHeader sign ed448Hdr "{}" @?= ed448Jwt
+
+        it "roundtrip encode/decode" $ do
+          let Right (Jwt encoded) = fstWithRNG (Jwt.encode [pubKey, secKey] (JwsEncoding EdDSA) (Claims "hello"))
+          fstWithRNG (Jwt.decode [pubKey] (Just (JwsEncoding EdDSA)) encoded) @?= Right (Jws (defJwsHdr { jwsAlg = EdDSA }, "hello"))
+          Jws.ed448Decode kPub (unJwt (Jws.ed448Encode kPr kPub "hello")) @?= Right (defJwsHdr { jwsAlg = EdDSA }, "hello")
+
+
 signWithHeader sign hdr payload = B.intercalate "." [hdrPayload, B64.encode $ sign hdrPayload]
   where
     hdrPayload = B.intercalate "." $ map B64.encode [hdr, payload]
@@ -134,6 +150,13 @@ ed25519PubJwk = "{\"kty\":\"OKP\",\"crv\":\"Ed25519\", \"x\":\"11qYAYKxCrfVS_7Ty
 ed25519Hdr = "{\"alg\":\"EdDSA\"}" :: B.ByteString
 ed25519Payload = "Example of Ed25519 signing"
 ed25519Jwt = "eyJhbGciOiJFZERTQSJ9.RXhhbXBsZSBvZiBFZDI1NTE5IHNpZ25pbmc.hgyY0il_MGCjP0JzlnLWG1PPOt7-09PGcvMg3AIbQR6dWbhijcNR4ki4iylGjg5BhVsPt9g7sVvpAr_MuM0KAg"
+
+-- Ed448 Data signed with ruby for comparison
+
+ed448SecJwk = "{\"kty\":\"OKP\", \"crv\":\"Ed448\", \"d\":\"-ox5cBHY-QLR0hRdE2gd97LkQ8oRZCT89ALXm-FqhINLdVEd_PtfHuetZoKeHALqwu-NfuADYDBL\",  \"x\": \"BnJNZy1_JXpGRlrNLYsz_9I5NCM-Py39P1kEOyrLRXJj38rnOJe7cJaVsOnPj2NkL_jVtG_qkjOA\" }"
+ed448PubJwk = "{\"kty\":\"OKP\", \"crv\":\"Ed448\", \"x\": \"BnJNZy1_JXpGRlrNLYsz_9I5NCM-Py39P1kEOyrLRXJj38rnOJe7cJaVsOnPj2NkL_jVtG_qkjOA\" }"
+ed448Hdr = "{\"alg\":\"Ed448\"}" :: B.ByteString
+ed448Jwt = "eyJhbGciOiJFZDQ0OCJ9.e30.UlqTx962FvZP1G5pZOrScRXlAB0DJI5dtZkknNTm1E70AapkONi8vzpvKd355czflQdc7uyOzTeAz0-eLvffCKgWm_zebLly7L3DLBliynQk14qgJgz0si-60mBFYOIxRghk95kk5hCsFpxpVE45jRIA" :: B.ByteString
 
 
 -- Unsecured JWT from section 6.1
