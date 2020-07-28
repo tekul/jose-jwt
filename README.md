@@ -17,6 +17,6 @@ A simple JWS example in ghci to illustrate:
 
 Trying to decode with a different key would return a `Left BadSignature`.
 
-More examples can be found in the [package documentation](http://hackage.haskell.org/package/jose-jwt).
+More examples can be found in the [package documentation](https://hackage.haskell.org/package/jose-jwt).
 
 [![Build Status](https://travis-ci.org/tekul/jose-jwt.svg?branch=master)](https://travis-ci.org/tekul/jose-jwt)
