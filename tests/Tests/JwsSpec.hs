@@ -11,6 +11,8 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 ()
 import Data.Word (Word64)
 import Crypto.Hash.Algorithms (SHA256(..))
+import qualified Crypto.PubKey.ECC.ECDSA as ECDSA
+import qualified Crypto.PubKey.ECC.Types as ECC
 import Crypto.MAC.HMAC (HMAC, hmac)
 import qualified Crypto.PubKey.RSA as RSA
 import qualified Crypto.PubKey.RSA.PKCS15 as RSAPKCS15
@@ -74,6 +76,15 @@ spec =
         it "encodes/decodes using RS512" $
           rsaRoundTrip RS512 a21Payload
 
+        it "encodes/decodes using ES256" $
+          ecRoundTrip ES256 a21Payload
+
+        it "encodes/decodes using ES384" $
+          ecRoundTrip ES256 a21Payload
+
+        it "encodes/decodes using ES512" $
+          ecRoundTrip ES256 a21Payload
+
 
 
       context "when using JWS Appendix A.3 data" $ do
@@ -100,6 +111,9 @@ hmacRoundTrip a msg = let Right (Jwt encoded) = Jws.hmacEncode a "asecretkey" ms
 
 rsaRoundTrip a msg = let Right (Jwt encoded) = fstWithRNG (Jws.rsaEncode a rsaPrivateKey msg)
                      in  Jws.rsaDecode rsaPublicKey encoded @?= Right (defJwsHdr {jwsAlg = a}, msg)
+
+ecRoundTrip a msg = let Right (Jwt encoded) = fstWithRNG (Jws.ecEncode a ecKeyPair msg)
+                    in Jws.ecDecode (ECDSA.toPublicKey ecKeyPair) encoded @?= Right (defJwsHdr {jwsAlg = a}, msg)
 
 -- Unsecured JWT from section 6.1
 jwt61 = "eyJhbGciOiJub25lIn0.eyJpc3MiOiJqb2UiLA0KICJleHAiOjEzMDA4MTkzODAsDQogImh0dHA6Ly9leGFtcGxlLmNvbS9pc19yb290Ijp0cnVlfQ."
@@ -155,6 +169,26 @@ rsaPublicKey = RSA.PublicKey
     , RSA.public_n = rsaModulus
     , RSA.public_e = rsaExponent
     }
+
+ecKeyPair = ECDSA.KeyPair
+  curve
+  (ECC.Point
+    88344307281088173370384276060748364180150383946102017353006755592089457122793
+    13834214987929688678456095127809444850410426574648173587359156346589899576974)
+  115111495959473545926989558973160128449590869292349300575038436815807202162725
+
+curve = ECC.CurveFP
+  (ECC.CurvePrime
+    115792089210356248762697446949407573530086143415290314195533631308867097853951
+    (ECC.CurveCommon
+      { ECC.ecc_a = 115792089210356248762697446949407573530086143415290314195533631308867097853948
+      , ECC.ecc_b = 41058363725152142129326129780047268409114441015993725554835256314039467401291
+      , ECC.ecc_g = ECC.Point
+          48439561293906451759052585252797914202762949526041747995844080717082404635286
+          36134250956749795798585127919587881956611106672985015071877198253568414405109
+      , ECC.ecc_n = 115792089210356248762697446949407573529996955224135760342422259061068512044369
+      , ECC.ecc_h = 1
+      }))
 
 a11mac :: B.ByteString -> HMAC SHA256
 a11mac = hmac hmacKey

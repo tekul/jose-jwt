@@ -22,7 +22,6 @@ module Jose.Types
     )
 where
 
-import Control.Applicative
 import Data.Aeson
 import Data.Aeson.Types
 import Data.Char (toUpper, toLower)

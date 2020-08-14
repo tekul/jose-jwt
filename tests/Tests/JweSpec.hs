@@ -4,7 +4,6 @@
 
 module Tests.JweSpec where
 
-import Control.Applicative
 import Data.Aeson (decodeStrict')
 import Data.Bits (xor)
 import Data.Word (Word8, Word64)
