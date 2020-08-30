@@ -1,0 +1,6 @@
+cradle:
+  multi:
+    - path: "./Jose"
+      config:
+        cradle:
+          cabal:

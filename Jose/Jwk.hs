@@ -17,6 +17,7 @@ module Jose.Jwk
     , canEncodeJwe
     , generateRsaKeyPair
     , generateSymmetricKey
+    , rsaPrivToPub
     )
 where
 
@@ -264,8 +265,8 @@ instance ToJSON Jwk where
     toJSON jwk = toJSON $ case jwk of
         RsaPublicJwk pubKey mId mUse mAlg ->
           createPubData pubKey mId mUse mAlg
-        RsaPrivateJwk privKey mId mUse mAlg ->
-            let pubData = createPubData (RSA.private_pub privKey) mId mUse mAlg
+        RsaPrivateJwk privKey _ _ _ ->
+            let pubData = rsaPrivToPub' jwk
             in  pubData
                 { d  = Just . JwkBytes . i2osp $ RSA.private_d privKey
                 , p  = i2b $ RSA.private_p    privKey
@@ -303,19 +304,33 @@ instance ToJSON Jwk where
             , crv = Just c
             }
       where
-        i2b 0 = Nothing
-        i2b i = Just . JwkBytes . i2osp $ i
         ecPoint pk = case ECDSA.public_q pk of
             ECC.Point xi yi -> (i2b xi, i2b yi)
             _             -> (Nothing, Nothing)
 
-        createPubData pubKey mId mUse mAlg = defJwk
-                              { n   = i2b (RSA.public_n pubKey)
-                              , e   = i2b (RSA.public_e pubKey)
-                              , kid = mId
-                              , use = mUse
-                              , alg = mAlg
-                              }
+rsaPrivToPub :: Jwk -> Jwk
+rsaPrivToPub k =
+    let Right k' = createJwk $ rsaPrivToPub' k
+    in
+    k'
+
+rsaPrivToPub' :: Jwk -> JwkData
+rsaPrivToPub' (RsaPrivateJwk privKey mId mUse mAlg) =
+    createPubData (RSA.private_pub privKey) mId mUse mAlg
+
+i2b :: Integer -> Maybe JwkBytes
+i2b 0 = Nothing
+i2b i = Just . JwkBytes . i2osp $ i
+
+createPubData :: RSA.PublicKey -> Maybe KeyId -> Maybe KeyUse -> Maybe Alg -> JwkData
+createPubData pubKey mId mUse mAlg = defJwk
+                      { n   = i2b (RSA.public_n pubKey)
+                      , e   = i2b (RSA.public_e pubKey)
+                      , kid = mId
+                      , use = mUse
+                      , alg = mAlg
+                      }
+
 instance ToJSON JwkSet
 instance FromJSON JwkSet
 
