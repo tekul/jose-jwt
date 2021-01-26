@@ -26,7 +26,7 @@ Extra-Source-Files:
 
 -- disable doctests with -f-doctest
 Flag doctest
-  default: True
+  default: False
   manual: True
 
 Source-Repository head
