@@ -1,3 +1,8 @@
+0.9.0
+-----
+
+* Support for EdDSA signing algorithms as defined in [RFC 8037](https://tools.ietf.org/html/rfc8037).
+
 0.8.0
 -----
 
