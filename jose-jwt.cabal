@@ -21,6 +21,7 @@ Cabal-Version:      >= 1.16
 Category:           JSON, Cryptography
 
 Extra-Source-Files:
+    README.md
     CHANGELOG.md
     tests/*.json
 
