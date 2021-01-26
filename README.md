@@ -54,8 +54,7 @@ To verify the JWT you would use the `Jose.Jwt.decode` function with the correspo
 More examples can be found in the [package documentation](https://hackage.haskell.org/package/jose-jwt).
 
 ### Build Status
-
-[![Build Status](https://travis-ci.org/tekul/jose-jwt.svg?branch=master)](https://travis-ci.org/tekul/jose-jwt)
+![Build Status](https://github.com/tekul/jose-jwt/workflows/Haskell%20CI/badge.svg)
 
 
 [1] This is now referred to as "compact serialization". The additional "JSON serialization" is not supported in this library.
