@@ -12,11 +12,14 @@ import qualified Data.ByteString.Char8 ()
 import Data.Word (Word64)
 import Crypto.Hash.Algorithms (SHA256(..))
 import Crypto.MAC.HMAC (HMAC, hmac)
+import qualified Crypto.PubKey.Ed25519 as Ed25519
+import qualified Crypto.PubKey.Ed448 as Ed448
 import qualified Crypto.PubKey.RSA as RSA
 import qualified Crypto.PubKey.RSA.PKCS15 as RSAPKCS15
 import Crypto.Random (withDRG, drgNewTest)
 
-import Jose.Jwt
+import Jose.Jwt as Jwt
+import Jose.Jwk (Jwk(..))
 import Jose.Jwa
 import qualified Jose.Internal.Base64 as B64
 import qualified Jose.Jws as Jws
@@ -29,7 +32,7 @@ fstWithRNG = fst . withDRG testRNG
 {-- Examples from the JWS appendix A --}
 
 spec :: Spec
-spec =
+spec = do
     describe "JWS encoding and decoding" $ do
       context "when using JWS Appendix A.1 data" $ do
         let a11decoded = Right (defJwsHdr {jwsAlg = HS256, jwsTyp = Just "JWT"}, a11Payload)
@@ -41,7 +44,7 @@ spec =
 
         it "decodes the payload using the JWK" $ do
           let Just k11 = decodeStrict' a11jwk
-          fstWithRNG (decode [k11] Nothing a11) @?= fmap Jws a11decoded
+          fstWithRNG (Jwt.decode [k11] Nothing a11) @?= fmap Jws a11decoded
 
         it "encodes/decodes using HS512" $
           hmacRoundTrip HS512 a11Payload
@@ -55,7 +58,7 @@ spec =
 
         it "decodes the JWT to the expected header and payload with the JWK" $ do
           let Just k21 = decodeStrict' a21jwk
-          fstWithRNG (decode [k21] (Just (JwsEncoding RS256)) a21) @?= (Right $ Jws (defJwsHdr {jwsAlg = RS256}, a21Payload))
+          fstWithRNG (Jwt.decode [k21] (Just (JwsEncoding RS256)) a21) @?= (Right $ Jws (defJwsHdr {jwsAlg = RS256}, a21Payload))
 
         it "decodes the successfully without verification" $ do
            let Right (_, claims) = decodeClaims a21 :: Either JwtError (JwtHeader, JwtClaims)
@@ -74,21 +77,60 @@ spec =
         it "encodes/decodes using RS512" $
           rsaRoundTrip RS512 a21Payload
 
-
-
       context "when using JWS Appendix A.3 data" $ do
         let a31decoded = Right (defJwsHdr {jwsAlg = ES256}, a31Payload)
         it "decodes the JWT to the expected header and payload" $ do
           let Just k31 = decodeStrict' a31jwk
-          fstWithRNG (decode [k31] Nothing a31) @?= fmap Jws a31decoded
+          fstWithRNG (Jwt.decode [k31] Nothing a31) @?= fmap Jws a31decoded
 
       context "when using an unsecured JWT" $ do
         it "returns an error if chosen alg is unset" $
-          fstWithRNG (decode [] Nothing jwt61) @?= Left (BadAlgorithm "JWT is unsecured but expected 'alg' was not 'none'")
+          fstWithRNG (Jwt.decode [] Nothing jwt61) @?= Left (BadAlgorithm "JWT is unsecured but expected 'alg' was not 'none'")
         it "returns an error if chosen alg is not 'none'" $
-          fstWithRNG (decode [] (Just (JwsEncoding RS256)) jwt61) @?= Left (BadAlgorithm "JWT is unsecured but expected 'alg' was not 'none'")
+          fstWithRNG (Jwt.decode [] (Just (JwsEncoding RS256)) jwt61) @?= Left (BadAlgorithm "JWT is unsecured but expected 'alg' was not 'none'")
         it "decodes the JWT to the expected header and payload if chosen alg is 'none'" $
-          fstWithRNG (decode [] (Just (JwsEncoding None)) jwt61) @?= Right (Unsecured jwt61Payload)
+          fstWithRNG (Jwt.decode [] (Just (JwsEncoding None)) jwt61) @?= Right (Unsecured jwt61Payload)
+
+    describe "Ed25519 signing and verification" $ do
+      context "When using RFC8037 Appendix A data" $ do
+        let ed25519JwtDecoded = Right (defJwsHdr { jwsAlg = EdDSA }, ed25519Payload)
+            Just pubKey = decodeStrict' ed25519PubJwk
+            Just (secKey@(Ed25519PrivateJwk kPr kPub _)) = decodeStrict' ed25519SecJwk
+            sign = Ed25519.sign kPr kPub
+        it "decodes the JWT to the expected header and payload" $ do
+          fstWithRNG (Jwt.decode [pubKey] Nothing ed25519Jwt) @?= fmap Jws ed25519JwtDecoded
+          fstWithRNG (Jwt.decode [secKey] Nothing ed25519Jwt) @?= fmap Jws ed25519JwtDecoded
+
+        it "encodes the payload to the exected JWT" $ do
+          -- Don't really need signWithHeader here, since our function gives the correct value
+          signWithHeader sign ed25519Hdr ed25519Payload @?= ed25519Jwt
+          Jws.ed25519Encode kPr kPub ed25519Payload @?= Jwt ed25519Jwt
+
+        it "roundtrip encode/decode" $ do
+          let Right (Jwt encoded) = fstWithRNG (Jwt.encode [pubKey, secKey] (JwsEncoding EdDSA) (Claims "hello there"))
+          fstWithRNG (Jwt.decode [pubKey] (Just (JwsEncoding EdDSA)) encoded) @?= Right (Jws (defJwsHdr { jwsAlg = EdDSA }, "hello there"))
+
+        it "encoding rejects invalid alg for Ed25519 key" $ do
+          fstWithRNG (Jws.jwkEncode RS256 secKey (Claims "hello")) @?= Left (KeyError "Algorithm cannot be used with an Ed25519 key")
+          fstWithRNG (Jwt.encode [pubKey, secKey] (JwsEncoding RS256) (Claims "hello")) @?= Left (KeyError "No matching key found for JWS algorithm")
+
+        it "verification fails with invalid alg in header" $ do
+          let badJwt = signWithHeader sign a21Header ed25519Payload
+          fstWithRNG (Jwt.decode [pubKey] Nothing badJwt) @?= Left (KeyError "No suitable key was found to decode the JWT")
+
+    describe "Ed448 signing and verification" $ do
+      let Just pubKey = decodeStrict' ed448PubJwk
+          Just (secKey@(Ed448PrivateJwk kPr kPub _)) = decodeStrict' ed448SecJwk
+          sign = Ed448.sign kPr kPub
+
+      context "" $ do
+        it "JWT is encoded to the expected value" $
+          signWithHeader sign ed448Hdr "{}" @?= ed448Jwt
+
+        it "roundtrip encode/decode" $ do
+          let Right (Jwt encoded) = fstWithRNG (Jwt.encode [pubKey, secKey] (JwsEncoding EdDSA) (Claims "hello"))
+          fstWithRNG (Jwt.decode [pubKey] (Just (JwsEncoding EdDSA)) encoded) @?= Right (Jws (defJwsHdr { jwsAlg = EdDSA }, "hello"))
+          Jws.ed448Decode kPub (unJwt (Jws.ed448Encode kPr kPub "hello")) @?= Right (defJwsHdr { jwsAlg = EdDSA }, "hello")
 
 
 signWithHeader sign hdr payload = B.intercalate "." [hdrPayload, B64.encode $ sign hdrPayload]
@@ -100,6 +142,22 @@ hmacRoundTrip a msg = let Right (Jwt encoded) = Jws.hmacEncode a "asecretkey" ms
 
 rsaRoundTrip a msg = let Right (Jwt encoded) = fstWithRNG (Jws.rsaEncode a rsaPrivateKey msg)
                      in  Jws.rsaDecode rsaPublicKey encoded @?= Right (defJwsHdr {jwsAlg = a}, msg)
+
+-- Ed25519 Data from https://tools.ietf.org/html/rfc8037#appendix-A
+
+ed25519SecJwk = "{\"kty\":\"OKP\", \"crv\":\"Ed25519\", \"d\":\"nWGxne_9WmC6hEr0kuwsxERJxWl7MmkZcDusAxyuf2A\", \"x\":\"11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo\"}" :: B.ByteString
+ed25519PubJwk = "{\"kty\":\"OKP\",\"crv\":\"Ed25519\", \"x\":\"11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo\"}"
+ed25519Hdr = "{\"alg\":\"EdDSA\"}" :: B.ByteString
+ed25519Payload = "Example of Ed25519 signing"
+ed25519Jwt = "eyJhbGciOiJFZERTQSJ9.RXhhbXBsZSBvZiBFZDI1NTE5IHNpZ25pbmc.hgyY0il_MGCjP0JzlnLWG1PPOt7-09PGcvMg3AIbQR6dWbhijcNR4ki4iylGjg5BhVsPt9g7sVvpAr_MuM0KAg"
+
+-- Ed448 Data signed with ruby for comparison
+
+ed448SecJwk = "{\"kty\":\"OKP\", \"crv\":\"Ed448\", \"d\":\"-ox5cBHY-QLR0hRdE2gd97LkQ8oRZCT89ALXm-FqhINLdVEd_PtfHuetZoKeHALqwu-NfuADYDBL\",  \"x\": \"BnJNZy1_JXpGRlrNLYsz_9I5NCM-Py39P1kEOyrLRXJj38rnOJe7cJaVsOnPj2NkL_jVtG_qkjOA\" }"
+ed448PubJwk = "{\"kty\":\"OKP\", \"crv\":\"Ed448\", \"x\": \"BnJNZy1_JXpGRlrNLYsz_9I5NCM-Py39P1kEOyrLRXJj38rnOJe7cJaVsOnPj2NkL_jVtG_qkjOA\" }"
+ed448Hdr = "{\"alg\":\"Ed448\"}" :: B.ByteString
+ed448Jwt = "eyJhbGciOiJFZDQ0OCJ9.e30.UlqTx962FvZP1G5pZOrScRXlAB0DJI5dtZkknNTm1E70AapkONi8vzpvKd355czflQdc7uyOzTeAz0-eLvffCKgWm_zebLly7L3DLBliynQk14qgJgz0si-60mBFYOIxRghk95kk5hCsFpxpVE45jRIA" :: B.ByteString
+
 
 -- Unsecured JWT from section 6.1
 jwt61 = "eyJhbGciOiJub25lIn0.eyJpc3MiOiJqb2UiLA0KICJleHAiOjEzMDA4MTkzODAsDQogImh0dHA6Ly9leGFtcGxlLmNvbS9pc19yb290Ijp0cnVlfQ."

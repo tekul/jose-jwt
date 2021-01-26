@@ -21,11 +21,17 @@ module Jose.Jws
     , rsaEncode
     , rsaDecode
     , ecDecode
+    , ed25519Encode
+    , ed25519Decode
+    , ed448Encode
+    , ed448Decode
     )
 where
 
 import Control.Applicative
 import qualified Crypto.PubKey.ECC.ECDSA as ECDSA
+import qualified Crypto.PubKey.Ed25519 as Ed25519
+import qualified Crypto.PubKey.Ed448 as Ed448
 import Crypto.PubKey.RSA (PrivateKey(..), PublicKey(..), generateBlinder)
 import Crypto.Random (MonadRandom)
 import Data.ByteString (ByteString)
@@ -49,6 +55,14 @@ jwkEncode :: MonadRandom m
 jwkEncode a key payload = case key of
     RsaPrivateJwk kPr kid _ _ -> rsaEncodeInternal a kPr (sigTarget a kid payload)
     SymmetricJwk  k   kid _ _ -> return $ hmacEncodeInternal a k (sigTarget a kid payload)
+    Ed25519PrivateJwk kPr kPub kid -> return $
+        case a of
+            EdDSA -> Right $ ed25519EncodeInternal kPr kPub (sigTarget EdDSA kid payload)
+            _ -> Left (KeyError "Algorithm cannot be used with an Ed25519 key")
+    Ed448PrivateJwk kPr kPub kid -> return $
+        case a of
+            EdDSA -> Right $ ed448EncodeInternal kPr kPub (sigTarget EdDSA kid payload)
+            _ -> Left (KeyError "Algorithm cannot be used with an Ed448 key")
     _                         -> return $ Left $ BadAlgorithm "EC signing is not supported"
 
 -- | Create a JWS with an HMAC for validation.
@@ -90,6 +104,57 @@ rsaEncodeInternal a pk st = do
     sign b = case rsaSign (Just b) a pk st of
         Right sig -> Right . Jwt $ B.concat [st, ".", B64.encode sig]
         Left e    -> Left e
+
+
+ed25519Decode :: Ed25519.PublicKey
+              -> ByteString
+              -> Either JwtError Jws
+ed25519Decode key = decode (`ed25519Verify` key)
+
+
+ed25519Encode :: Ed25519.SecretKey
+              -> Ed25519.PublicKey
+              -> ByteString
+              -> Jwt
+ed25519Encode kPr kPub payload =
+    ed25519EncodeInternal kPr kPub (sigTarget EdDSA Nothing (Claims payload))
+
+
+ed25519EncodeInternal :: Ed25519.SecretKey
+                      -> Ed25519.PublicKey
+                      -> ByteString
+                      -> Jwt
+ed25519EncodeInternal kPr kPub signMe =
+  let
+     sig = Ed25519.sign kPr kPub signMe
+  in
+     Jwt (B.concat [signMe, ".", B64.encode sig])
+
+
+ed448Decode :: Ed448.PublicKey
+            -> ByteString
+            -> Either JwtError Jws
+ed448Decode key = decode (`ed448Verify` key)
+
+
+ed448Encode :: Ed448.SecretKey
+            -> Ed448.PublicKey
+            -> ByteString
+            -> Jwt
+ed448Encode kPr kPub payload =
+    ed448EncodeInternal kPr kPub (sigTarget EdDSA Nothing (Claims payload))
+
+
+ed448EncodeInternal :: Ed448.SecretKey
+                    -> Ed448.PublicKey
+                    -> ByteString
+                    -> Jwt
+ed448EncodeInternal kPr kPub signMe =
+  let
+     sig = Ed448.sign kPr kPub signMe
+  in
+     Jwt (B.concat [signMe, ".", B64.encode sig])
+
 
 -- | Decode and validate an RSA signed JWS.
 rsaDecode :: PublicKey            -- ^ The key to check the signature with
