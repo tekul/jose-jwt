@@ -25,9 +25,9 @@ HMAC is a good choice when both signer and verifier have a copy of the key.
     > import Jose.Jws (hmacEncode, hmacDecode)
     > import Jose.Jwa (JwsAlg(HS256))
     >
-    > hmacEncode HS256 "somehmackey" "my JSON message"
-    Right (Jwt {unJwt = "eyJhbGciOiJIUzI1NiJ9.bXkgSlNPTiBtZXNzYWdl.glg2--z9P5KCCfCucyohwedpe1H8uNHQeGiXLq-kkD0"})
-    > hmacDecode "somehmackey" "eyJhbGciOiJIUzI1NiJ9.bXkgSlNPTiBtZXNzYWdl.glg2--z9P5KCCfCucyohwedpe1H8uNHQeGiXLq-kkD0"
+    > hmacEncode HS256 "aRANDOMlygeneratedkey" "my JSON message"
+    Right (Jwt {unJwt = "eyJhbGciOiJIUzI1NiJ9.bXkgSlNPTiBtZXNzYWdl.lTJx7ECLwYF3P7WbrrUpcp_2SdLiFXaDwK-PXcipt5Q"})
+    > hmacDecode "aRANDOMlygeneratedkey" "eyJhbGciOiJIUzI1NiJ9.bXkgSlNPTiBtZXNzYWdl.lTJx7ECLwYF3P7WbrrUpcp_2SdLiFXaDwK-PXcipt5Q"
     Right (JwsHeader {jwsAlg = HS256, jwsTyp = Nothing, jwsCty = Nothing, jwsKid = Nothing},"my JSON message")
 
 Trying to decode with a different key would return a `Left BadSignature` [2].
@@ -58,7 +58,8 @@ More examples can be found in the [package documentation](https://hackage.haskel
 [![Build Status](https://travis-ci.org/tekul/jose-jwt.svg?branch=master)](https://travis-ci.org/tekul/jose-jwt)
 
 
-[1] Note that a real key for HMAC256 should be a much longer, random string of bytes. See, for example,
+[1] This is now referred to as "compact serialization". The additional "JSON serialization" is not supported in this library.
+
+[2] Note that a real key for HMAC256 should be a much longer, random string of bytes. See, for example,
 [this stackexchange answer](https://crypto.stackexchange.com/a/34866).
 
-[2] This is now referred to as "compact serialization". The additional "JSON serialization" is not supported in this library.
