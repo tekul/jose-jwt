@@ -5,11 +5,12 @@
 module Tests.JweSpec where
 
 import Control.Applicative
-import Data.Aeson (decodeStrict')
+import Data.Aeson (decodeStrict', ToJSON)
 import Data.Bits (xor)
 import Data.Word (Word8, Word64)
 import qualified Data.ByteArray as BA
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Char8 as BC
 import Test.Hspec
 import Test.HUnit hiding (Test)
@@ -48,7 +49,7 @@ spec =
             (rsaEncrypt a1PubKey RSA_OAEP a1cek) @?= (Right a1jweKey, RNG "")
 
       it "encrypts the payload to the expected ciphertext and authentication tag" $ do
-        let aad = B64.encode . encodeHeader $ a1Header
+        let aad = B64.encode ("{\"alg\":\"RSA-OAEP\",\"enc\":\"A256GCM\"}" :: B.ByteString)
         encryptPayload A256GCM a1cek a1iv aad a1Payload @?= Just (AuthTag a1Tag, a1Ciphertext)
 
       it "encodes the payload to the expected JWT, leaving the RNG empty" $
@@ -94,7 +95,7 @@ spec =
 
     context "when using JWE Appendix 2 data" $ do
       let a2Header = defJweHdr {jweAlg = RSA1_5, jweEnc = A128CBC_HS256}
-      let aad = B64.encode . encodeHeader $ a2Header
+      let aad = B64.encode ("{\"alg\":\"RSA1_5\",\"enc\":\"A128CBC-HS256\"}" :: B.ByteString)
 
       it "generates the expected RSA-encrypted content key" $
         withDRG (RNG a2seed) (rsaEncrypt a2PubKey RSA1_5 a2cek) @?= (Right a2jweKey, RNG "")
@@ -130,7 +131,7 @@ spec =
     context "when using JWE Appendix 3 data" $ do
       let Just jwk = decodeStrict' a3jwk
           a3Header = defJweHdr {jweAlg = A128KW, jweEnc = A128CBC_HS256}
-      it "encodes the payload to the epected JWT" $
+      it "encodes the payload to the expected JWT" $
         withDRG (RNG $ B.concat [a3cek, a3iv])
             (Jwe.jwkEncode A128KW A128CBC_HS256 jwk (Claims a3Payload)) @?= (Right (Jwt a3), RNG "")
 
@@ -159,7 +160,7 @@ up = unpad
 
 -- verboseQuickCheckWith quickCheckWith stdArgs {maxSuccess=10000}  jweRoundTrip
 jweRoundTrip :: RNG -> JWEAlgs -> [Word8] -> Bool
-jweRoundTrip g (JWEAlgs a e) msg = encodeDecode == Right (Jwe (defJweHdr {jweAlg = a, jweEnc = e}, bs))
+jweRoundTrip g (JWEAlgs a e) msg = encodeDecode == Right (Jwe (defJweHdr {jweAlg = a, jweEnc = e }, bs))
   where
     jwks = [a1jwk, a2jwk, a3jwk, aes192jwk, aes256jwk] >>= \j -> let Just jwk = decodeStrict' j in [jwk]
     bs = B.pack msg

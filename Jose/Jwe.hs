@@ -12,20 +12,20 @@
 -- of the token need to have a copy of the key, which they must keep secret. With
 -- RSA anyone can send you a JWE if they have a copy of your public key.
 --
--- In the example below, we show encoding and decoding using a 512 byte RSA key pair
--- (in practice you would use a larger key-size, for example 2048 bytes):
+-- In the example below, we show encoding and decoding using a 2048 bit RSA key pair
+-- (256 bytes).
 --
 -- >>> import Jose.Jwe
 -- >>> import Jose.Jwa
 -- >>> import Jose.Jwk (generateRsaKeyPair, generateSymmetricKey, KeyUse(Enc), KeyId)
--- >>> (kPub, kPr) <- generateRsaKeyPair 512 (KeyId "My RSA Key") Enc Nothing
+-- >>> (kPub, kPr) <- generateRsaKeyPair 256 (KeyId "My RSA Key") Enc Nothing
 -- >>> Right (Jwt jwt) <- jwkEncode RSA_OAEP A128GCM kPub (Claims "secret claims")
 -- >>> Right (Jwe (hdr, claims)) <- jwkDecode kPr jwt
 -- >>> claims
 -- "secret claims"
 --
 -- Using 128-bit AES keywrap is very similar, the main difference is that
--- we generate a 128-bit symmetric key:
+-- we generate a 128-bit symmetric key (16 bytes):
 --
 -- >>> aesKey <- generateSymmetricKey 16 (KeyId "My Keywrap Key") Enc Nothing
 -- >>> Right (Jwt jwt) <- jwkEncode A128KW A128GCM aesKey (Claims "more secret claims")
@@ -46,10 +46,13 @@ import Control.Monad.Trans.Except
 import Crypto.Cipher.Types (AuthTag(..))
 import Crypto.PubKey.RSA (PrivateKey(..), PublicKey(..), generateBlinder, private_pub)
 import Crypto.Random (MonadRandom)
+import qualified Data.Aeson as A
 import Data.ByteArray (ByteArray, ScrubbedBytes)
 import qualified Data.ByteArray as BA
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Lazy as BL
+import Data.Maybe (isNothing)
 import Jose.Types
 import qualified Jose.Internal.Base64 as B64
 import Jose.Internal.Crypto
@@ -67,13 +70,24 @@ jwkEncode :: MonadRandom m
     -> Payload                         -- ^ The token content (claims or nested JWT)
     -> m (Either JwtError Jwt)         -- ^ The encoded JWE if successful
 jwkEncode a e jwk payload = runExceptT $ case jwk of
-    RsaPublicJwk kPub kid _ _ -> doEncode (hdr kid) (doRsa kPub) bytes
-    RsaPrivateJwk kPr kid _ _ -> doEncode (hdr kid) (doRsa (private_pub kPr)) bytes
-    SymmetricJwk  kek kid _ _ -> doEncode (hdr kid) (ExceptT .  return . keyWrap a (BA.convert kek)) bytes
+    RsaPublicJwk kPub kid _ _ -> doEncode (hdr kid) e (doRsa kPub) bytes
+    RsaPrivateJwk kPr kid _ _ -> doEncode (hdr kid) e (doRsa (private_pub kPr)) bytes
+    SymmetricJwk  kek kid _ _ -> doEncode (hdr kid) e (ExceptT .  return . keyWrap a (BA.convert kek)) bytes
     _                         -> throwE $ KeyError "JWK cannot encode a JWE"
   where
     doRsa kPub = ExceptT . rsaEncrypt kPub a
-    hdr kid = defJweHdr {jweAlg = a, jweEnc = e, jweKid = kid, jweCty = contentType}
+    hdr :: Maybe KeyId -> B.ByteString
+    hdr kid = BL.toStrict $
+        BL.concat
+            [ "{\"alg\":"
+            , A.encode a
+            , ",\"enc\":"
+            , A.encode e
+            , maybe "" (\c -> BL.concat [",\"cty\":\"", c, "\"" ]) contentType
+            , if isNothing kid then "" else BL.concat [",\"kid\":", A.encode kid ]
+            , "}"
+            ]
+
     (contentType, bytes) = case payload of
         Claims c       -> (Nothing, c)
         Nested (Jwt b) -> (Just "JWT", b)
@@ -117,19 +131,18 @@ doDecode decodeCek jwt = do
 
 
 doEncode :: (MonadRandom m, ByteArray ba)
-    => JweHeader
+    => ByteString
+    -> Enc
     -> (ScrubbedBytes -> ExceptT JwtError m ByteString)
     -> ba
     -> ExceptT JwtError m Jwt
-doEncode h encryptKey claims = do
+doEncode hdr e encryptKey claims = do
     (cmk, iv) <- lift (generateCmkAndIV e)
     let Just (AuthTag sig, ct) = encryptPayload e cmk iv aad claims
     jweKey <- encryptKey cmk
     let jwe = B.intercalate "." $ map B64.encode [hdr, jweKey, BA.convert iv, BA.convert ct, BA.convert sig]
     return (Jwt jwe)
   where
-    e   = jweEnc h
-    hdr = encodeHeader h
     aad = B64.encode hdr
 
 -- | Creates a JWE with the content key encoded using RSA.
@@ -139,7 +152,9 @@ rsaEncode :: MonadRandom m
     -> PublicKey       -- ^ RSA key to encrypt with
     -> ByteString      -- ^ The JWT claims (content)
     -> m (Either JwtError Jwt) -- ^ The encoded JWE
-rsaEncode a e kPub claims = runExceptT $ doEncode (defJweHdr {jweAlg = a, jweEnc = e}) (ExceptT . rsaEncrypt kPub a) claims
+rsaEncode a e kPub claims = runExceptT $ doEncode hdr e (ExceptT . rsaEncrypt kPub a) claims
+  where
+    hdr = BL.toStrict $ BL.concat ["{\"alg\":", A.encode a, ",", "\"enc\":", A.encode e, "}"]
 
 
 -- | Decrypts a JWE.
