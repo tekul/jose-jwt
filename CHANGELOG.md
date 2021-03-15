@@ -1,3 +1,8 @@
+0.9.1
+-----
+
+* Fix for tests broken due to [different aeson key ordering](https://github.com/commercialhaskell/stackage/issues/5878).
+
 0.9.0
 -----
 
@@ -6,8 +11,7 @@
 0.8.0
 -----
 
-* The result of the `Jose.Jwt.decodeClaims` function is now polymorphic so it can be used with
-any `FromJSON` type.
+* The result of the `Jose.Jwt.decodeClaims` function is now polymorphic so it can be used with any `FromJSON` type.
 * Only ghc 8 upwards are now supported.
 * the RSA-OAEP-256 algorithm is now supported.
 
