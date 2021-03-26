@@ -20,7 +20,6 @@ module Jose.Jwk
     )
 where
 
-import           Control.Applicative (pure)
 import           Control.Monad (unless)
 import           Crypto.Error (CryptoFailable(..))
 import           Crypto.Random (MonadRandom, getRandomBytes)
@@ -72,7 +71,7 @@ data Jwk = RsaPublicJwk  !RSA.PublicKey   !(Maybe KeyId) !(Maybe KeyUse) !(Maybe
          | UnsupportedJwk Object
            deriving (Show, Eq)
 
-data JwkSet = JwkSet
+newtype JwkSet = JwkSet
     { keys :: [Jwk]
     } deriving (Show, Eq, Generic)
 
@@ -214,9 +213,9 @@ jwkId key = case key of
 
 jwkUse :: Jwk -> Maybe KeyUse
 jwkUse key = case key of
-    Ed25519PrivateJwk _ _ _ -> Just Sig
+    Ed25519PrivateJwk {} -> Just Sig
     Ed25519PublicJwk _ _ -> Just Sig
-    Ed448PrivateJwk _ _ _ -> Just Sig
+    Ed448PrivateJwk {} -> Just Sig
     Ed448PublicJwk _ _ -> Just Sig
     RsaPublicJwk  _ _ u _ -> u
     RsaPrivateJwk _ _ u _ -> u
@@ -227,9 +226,9 @@ jwkUse key = case key of
 
 jwkAlg :: Jwk -> Maybe Alg
 jwkAlg key = case key of
-    Ed25519PrivateJwk _ _ _ -> Just (Signed EdDSA)
+    Ed25519PrivateJwk {} -> Just (Signed EdDSA)
     Ed25519PublicJwk _ _ -> Just (Signed EdDSA)
-    Ed448PrivateJwk _ _ _ -> Just (Signed EdDSA)
+    Ed448PrivateJwk {} -> Just (Signed EdDSA)
     Ed448PublicJwk _ _ -> Just (Signed EdDSA)
     RsaPublicJwk  _ _ _ a -> a
     RsaPrivateJwk _ _ _ a -> a
@@ -297,7 +296,7 @@ instance FromJSON Jwk where
     parseJSON _            = fail "Jwk must be a JSON object"
 
 parseJwk :: Object -> Parser Jwk
-parseJwk k = do
+parseJwk k =
     case (checkAlg, checkKty) of
         (Success _, Success _) -> do
             jwkData <- parseJSON (Object k) :: Parser JwkData
@@ -523,7 +522,7 @@ createJwk J {..} = case kty of
     rsaPub nb eb  = let m  = os2ip $ bytes nb
                         ex = os2ip $ bytes eb
                     in RSA.PublicKey (rsaSize m 1) m ex
-    rsaSize m i   = if (2 ^ (i * 8)) > m then i else rsaSize m (i+1)
+    rsaSize m i   = if 2 ^ (i * 8) > m then i else rsaSize m (i+1)
     ecPoint       = do
         xb <- note "x is required for an EC key" x
         yb <- note "y is required for an EC key" y

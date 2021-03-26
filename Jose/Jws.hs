@@ -28,7 +28,6 @@ module Jose.Jws
     )
 where
 
-import Control.Applicative
 import qualified Crypto.PubKey.ECC.ECDSA as ECDSA
 import qualified Crypto.PubKey.Ed25519 as Ed25519
 import qualified Crypto.PubKey.Ed448 as Ed448

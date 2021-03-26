@@ -10,7 +10,6 @@ module Jose.Jwa
     )
 where
 
-import Control.Applicative (pure)
 import Data.Aeson
 import Data.Text (Text)
 import Data.Tuple (swap)

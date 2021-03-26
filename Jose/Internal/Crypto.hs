@@ -26,7 +26,6 @@ module Jose.Internal.Crypto
 where
 
 
-import           Control.Applicative
 import           Control.Monad (when, unless)
 import           Crypto.Error
 import           Crypto.Cipher.AES

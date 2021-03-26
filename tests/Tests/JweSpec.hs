@@ -4,13 +4,11 @@
 
 module Tests.JweSpec where
 
-import Control.Applicative
-import Data.Aeson (decodeStrict', ToJSON)
+import Data.Aeson (decodeStrict')
 import Data.Bits (xor)
 import Data.Word (Word8, Word64)
 import qualified Data.ByteArray as BA
 import qualified Data.ByteString as B
-import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Char8 as BC
 import Test.Hspec
 import Test.HUnit hiding (Test)
@@ -68,7 +66,7 @@ spec =
       it "decodes the JWT using the JWK" $ do
         let Just k1 = decodeStrict' a1jwk
             Just k2 = decodeStrict' a2jwk
-        withBlinder (decode [k2, k1] (Just $ JweEncoding RSA_OAEP A256GCM) a1) @?= (Right $ Jwe (a1Header, a1Payload))
+        withBlinder (decode [k2, k1] (Just $ JweEncoding RSA_OAEP A256GCM) a1) @?= Right (Jwe (a1Header, a1Payload))
 
       it "a truncated CEK returns BadCrypto" $ do
         let [hdr, _, iv, payload, tag] = BC.split '.' a1
@@ -136,7 +134,7 @@ spec =
             (Jwe.jwkEncode A128KW A128CBC_HS256 jwk (Claims a3Payload)) @?= (Right (Jwt a3), RNG "")
 
       it "decodes the JWT using the JWK" $
-        withBlinder (decode [jwk] Nothing a3) @?= (Right $ Jwe (a3Header, a3Payload))
+        withBlinder (decode [jwk] Nothing a3) @?= Right (Jwe (a3Header, a3Payload))
 
     context "when used with quickcheck" $ do
       it "padded msg is always a multiple of 16" $ property $
@@ -297,7 +295,7 @@ instance Arbitrary JWEAlgs where
     return $ JWEAlgs a e
 
 instance Arbitrary RNG where
-  arbitrary = (RNG . B.pack) <$> vector 600
+  arbitrary = RNG . B.pack <$> vector 600
 
 
 --------------------------------------------------------------------------------
