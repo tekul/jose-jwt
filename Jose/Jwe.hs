@@ -106,7 +106,8 @@ jwkDecode jwk jwt = runExceptT $ case jwk of
         e <- doDecode (rsaDecrypt (Just blinder) kPr) jwt
         return (Jwe e)
     SymmetricJwk kb   _ _ _ -> fmap Jwe (doDecode (keyUnwrap (BA.convert kb)) jwt)
-    _                       -> throwE $ KeyError "JWK cannot decode a JWE"
+    UnsupportedJwk _ -> throwE (KeyError "Unsupported JWK cannot be used to decode JWE")
+    _ -> throwE $ KeyError "This JWK cannot decode a JWE"
 
 
 doDecode :: MonadRandom m

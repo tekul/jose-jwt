@@ -18,7 +18,6 @@ import Jose.Jwt (defJwsHdr, JwsHeader(..), KeyId(..))
 import Jose.Jwk
 import Jose.Jwa
 
--- TODO: Support for  {"kty": "oct", "alg": "A128KW", "k":"GawgguFyGrWKav7AX4VKUg"}
 spec :: Spec
 spec = do
     jwkFile <- runIO (B.readFile "tests/jwks.json")
@@ -45,7 +44,7 @@ spec = do
                 Ed25519PrivateJwk _ _ key9Id = kss !! 9
                 Ed25519PublicJwk _ key10Id = kss !! 10
                 Success utcKeyId = fromJSON (String "2015-05-16T18:00:14.259Z")
-            length kss @?= 11
+            length kss @?= 14
             a0      @?= Nothing
             key0Id  @?= Just (KeyId "a0")
             key1Id  @?= Just (KeyId "a1")

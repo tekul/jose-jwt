@@ -118,6 +118,7 @@ decode keySet encoding jwt = runExceptT $ do
         EcPublicJwk   kPub _ _ _ _ -> Jws.ecDecode kPub jwt
         EcPrivateJwk  kPr  _ _ _ _ -> Jws.ecDecode (ECDSA.toPublicKey kPr) jwt
         SymmetricJwk  kb   _ _ _ -> Jws.hmacDecode kb jwt
+        UnsupportedJwk _ -> Left (KeyError "Unsupported JWKs cannot be used")
 
     decodeWithJwe :: MonadRandom m => Jwk -> ExceptT JwtError m (Maybe JwtContent)
     decodeWithJwe k = fmap (either (const Nothing) Just) (lift (Jwe.jwkDecode k jwt))

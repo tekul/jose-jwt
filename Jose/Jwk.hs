@@ -30,12 +30,13 @@ import qualified Crypto.PubKey.Ed25519 as Ed25519
 import qualified Crypto.PubKey.Ed448 as Ed448
 import qualified Crypto.PubKey.ECC.Types as ECC
 import           Crypto.Number.Serialize
-import           Data.Aeson (genericToJSON, Value(..), FromJSON(..), ToJSON(..), withText)
+import           Data.Aeson (fromJSON, genericToJSON, Object, Result(..), Value(..), FromJSON(..), ToJSON(..), withText)
 import           Data.Aeson.Types (Parser, Options (..), defaultOptions)
 import qualified Data.ByteArray as BA
 import           Data.ByteString (ByteString)
 import qualified Data.ByteString as B
-import           Data.Maybe (isNothing)
+import qualified Data.HashMap.Strict as H
+import           Data.Maybe (isNothing, fromMaybe)
 import           Data.Text (Text)
 import qualified Data.Text.Encoding as TE
 import           GHC.Generics (Generic)
@@ -68,6 +69,7 @@ data Jwk = RsaPublicJwk  !RSA.PublicKey   !(Maybe KeyId) !(Maybe KeyUse) !(Maybe
          | Ed448PrivateJwk !Ed448.SecretKey !Ed448.PublicKey !(Maybe KeyId)
          | Ed448PublicJwk !Ed448.PublicKey !(Maybe KeyId)
          | SymmetricJwk  !ByteString      !(Maybe KeyId) !(Maybe KeyUse) !(Maybe Alg)
+         | UnsupportedJwk Object
            deriving (Show, Eq)
 
 data JwkSet = JwkSet
@@ -208,6 +210,7 @@ jwkId key = case key of
     EcPublicJwk   _ keyId _ _ _ -> keyId
     EcPrivateJwk  _ keyId _ _ _ -> keyId
     SymmetricJwk  _ keyId _ _ -> keyId
+    UnsupportedJwk _ -> Nothing
 
 jwkUse :: Jwk -> Maybe KeyUse
 jwkUse key = case key of
@@ -220,6 +223,7 @@ jwkUse key = case key of
     EcPublicJwk   _ _ u _ _ -> u
     EcPrivateJwk  _ _ u _ _ -> u
     SymmetricJwk  _ _ u _ -> u
+    UnsupportedJwk _ -> Nothing
 
 jwkAlg :: Jwk -> Maybe Alg
 jwkAlg key = case key of
@@ -232,6 +236,7 @@ jwkAlg key = case key of
     EcPublicJwk   _ _ _ a _ -> a
     EcPrivateJwk  _ _ _ a _ -> a
     SymmetricJwk  _ _ _ a -> a
+    UnsupportedJwk _ -> Nothing
 
 
 newtype JwkBytes = JwkBytes {bytes :: ByteString} deriving (Show)
@@ -288,20 +293,33 @@ instance ToJSON JwkBytes where
     toJSON (JwkBytes b) = String . TE.decodeUtf8 $ B64.encode b
 
 instance FromJSON Jwk where
-    parseJSON o@(Object _) = do
-        jwkData <- parseJSON o :: Parser JwkData
-        case createJwk jwkData of
-            Left  err -> fail err
-            Right jwk -> return jwk
+    parseJSON (Object k) = parseJwk k
     parseJSON _            = fail "Jwk must be a JSON object"
 
+parseJwk :: Object -> Parser Jwk
+parseJwk k = do
+    case (checkAlg, checkKty) of
+        (Success _, Success _) -> do
+            jwkData <- parseJSON (Object k) :: Parser JwkData
+            case createJwk jwkData of
+                Left  err -> fail err
+                Right jwk -> return jwk
+        _ -> pure (UnsupportedJwk k)
+  where
+    algValue = fromMaybe Null (H.lookup "alg" k)
+    -- kty is required so if it's missing here we do nothing and allow decoding to fail
+    -- later
+    ktyValue = fromMaybe Null (H.lookup "kty" k)
+    checkAlg = fromJSON algValue :: Result (Maybe Alg)
+    checkKty = fromJSON ktyValue :: Result (Maybe KeyType)
+
 instance ToJSON Jwk where
-    toJSON jwk = toJSON $ case jwk of
+    toJSON jwk = case jwk of
         RsaPublicJwk pubKey mId mUse mAlg ->
-          createPubData pubKey mId mUse mAlg
+          toJSON $ createPubData pubKey mId mUse mAlg
         RsaPrivateJwk privKey mId mUse mAlg ->
             let pubData = createPubData (RSA.private_pub privKey) mId mUse mAlg
-            in  pubData
+            in  toJSON $ pubData
                 { d  = Just . JwkBytes . i2osp $ RSA.private_d privKey
                 , p  = i2b $ RSA.private_p    privKey
                 , q  = i2b $ RSA.private_q    privKey
@@ -310,7 +328,7 @@ instance ToJSON Jwk where
                 , qi = i2b $ RSA.private_qinv privKey
                 }
 
-        Ed25519PrivateJwk kPr kPub kid_ -> defJwk
+        Ed25519PrivateJwk kPr kPub kid_ -> toJSON $ defJwk
             { kty = Okp
             , crv = Just "Ed25519"
             , d = Just (JwkBytes (BA.convert kPr))
@@ -318,14 +336,14 @@ instance ToJSON Jwk where
             , kid = kid_
             }
 
-        Ed25519PublicJwk kPub kid_ -> defJwk
+        Ed25519PublicJwk kPub kid_ -> toJSON $ defJwk
             { kty = Okp
             , crv = Just "Ed25519"
             , x = Just (JwkBytes (BA.convert kPub))
             , kid = kid_
             }
 
-        Ed448PrivateJwk kPr kPub kid_ -> defJwk
+        Ed448PrivateJwk kPr kPub kid_ -> toJSON $ defJwk
             { kty = Okp
             , crv = Just "Ed448"
             , d = Just (JwkBytes (BA.convert kPr))
@@ -333,7 +351,7 @@ instance ToJSON Jwk where
             , kid = kid_
             }
 
-        Ed448PublicJwk kPub kid_ -> defJwk
+        Ed448PublicJwk kPub kid_ -> toJSON $ defJwk
             { kty = Okp
             , crv = Just "Ed448"
             , x = Just (JwkBytes (BA.convert kPub))
@@ -341,7 +359,7 @@ instance ToJSON Jwk where
             }
 
 
-        SymmetricJwk bs mId mUse mAlg -> defJwk
+        SymmetricJwk bs mId mUse mAlg -> toJSON $ defJwk
             { kty = Oct
             , k   = Just $ JwkBytes bs
             , kid = mId
@@ -349,7 +367,7 @@ instance ToJSON Jwk where
             , alg = mAlg
             }
 
-        EcPublicJwk pubKey mId mUse mAlg c -> defJwk
+        EcPublicJwk pubKey mId mUse mAlg c -> toJSON $ defJwk
             { kty = Ec
             , x   = fst (ecPoint pubKey)
             , y   = snd (ecPoint pubKey)
@@ -359,7 +377,7 @@ instance ToJSON Jwk where
             , crv = Just (ecCurveName c)
             }
 
-        EcPrivateJwk kp mId mUse mAlg c -> defJwk
+        EcPrivateJwk kp mId mUse mAlg c -> toJSON $ defJwk
             { kty = Ec
             , x   = fst (ecPoint (ECDSA.toPublicKey kp))
             , y   = snd (ecPoint (ECDSA.toPublicKey kp))
@@ -369,6 +387,8 @@ instance ToJSON Jwk where
             , alg = mAlg
             , crv = Just (ecCurveName c)
             }
+
+        UnsupportedJwk k -> Object k
       where
         i2b 0 = Nothing
         i2b i = Just . JwkBytes . i2osp $ i
