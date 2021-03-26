@@ -327,7 +327,7 @@ instance ToJSON Jwk where
 
         Ed448PrivateJwk kPr kPub kid_ -> defJwk
             { kty = Okp
-            , crv = Just "Ed25519"
+            , crv = Just "Ed448"
             , d = Just (JwkBytes (BA.convert kPr))
             , x = Just (JwkBytes (BA.convert kPub))
             , kid = kid_
@@ -335,7 +335,7 @@ instance ToJSON Jwk where
 
         Ed448PublicJwk kPub kid_ -> defJwk
             { kty = Okp
-            , crv = Just "Ed25519"
+            , crv = Just "Ed448"
             , x = Just (JwkBytes (BA.convert kPub))
             , kid = kid_
             }
