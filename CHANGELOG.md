@@ -1,3 +1,8 @@
+0.9.2
+-----
+
+* Add `UnsupportedJwt` constructor to `Jwk` type which wraps the JSON value. This prevents failure loading keys which have `alg` or `kty` values which we don't support (see #31).
+
 0.9.1
 -----
 
