@@ -41,6 +41,8 @@ git status -b -s | grep -q "## $BRANCH" \
 [ -z "$NEW_VERSION" ] \
     && ( echo "Please provide new version for the release."; exit 1 )
 
+echo "Project is $PROJECT. Release is $NEW_VERSION"
+
 # The only uncommitted change at this stage should be the CHANGELOG
 git status -s --untracked-files=no | grep -v 'CHANGELOG' \
     && ( echo "There are uncommitted changes. Make sure changes are committed or stashed and pushed, and the CI build is OK."; exit 1 )
@@ -61,14 +63,20 @@ grep -q "$NEW_VERSION" CHANGELOG.md \
     || ( echo "Please add a changelog entry for this release."; exit 1 )
 
 echo "Checking CI build state..."
-curl -H "Accept: application/vnd.travis-ci.2+json" \
-    "https://api.travis-ci.org/repos/$SLUG" \
-    | python -m json.tool \
-    | grep "last_build_state" | grep "passed" \
-    || ( echo "Can't confirm that travis CI is in 'passed' state."; opt_exit )
+CI_RUN=$(curl -H "Accept: application/vnd.github.v3+json" "https://api.github.com/repos/$SLUG/actions/runs" \
+    | jq '.workflow_runs | map(select(.head_branch == "master" and .name == "Haskell CI"))[0]')
 
+CI_STATUS=$(jq -n "${CI_RUN}|.status")
 
-perl -i -p -e 's/^([vV]ersion:\s+)\d.*/${1}'"$NEW_VERSION"'/' "$PROJECT.cabal"
+[[ $CI_STATUS = "\"completed\"" ]] \
+    || ( echo "Last CI Run status is $CI_STATUS (not \"completed\"). Please check it or wait for it to finish."; exit 1)
+
+CI_CONCLUSION=$(jq -n "${CI_RUN}|.conclusion")
+
+[[ $CI_CONCLUSION = "\"success\"" ]] \
+    || ( echo "Last CI Run conclusion is $CI_CONCLUSION (expected \"success\")"; exit 1)
+
+perl -i -p -e 's/^([vV]ersion:\s+)\d.*/${1}'"${NEW_VERSION}"'/' "$PROJECT.cabal"
 
 git add "$PROJECT.cabal"
 git add CHANGELOG.md
