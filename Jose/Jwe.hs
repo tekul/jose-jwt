@@ -13,7 +13,8 @@
 -- RSA anyone can send you a JWE if they have a copy of your public key.
 --
 -- In the example below, we show encoding and decoding using a 2048 bit RSA key pair
--- (256 bytes).
+-- (256 bytes). If using RSA, use one of the @RSA_OAEP@ algorithms. @RSA1_5@ is
+-- deprecated due to <https://robotattack.org/ known vulnerabilities>.
 --
 -- >>> import Jose.Jwe
 -- >>> import Jose.Jwa
