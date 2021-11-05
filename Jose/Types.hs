@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, DeriveGeneric, FlexibleContexts #-}
+{-# LANGUAGE OverloadedStrings, DeriveGeneric, FlexibleContexts, GeneralizedNewtypeDeriving #-}
 {-# OPTIONS_HADDOCK prune #-}
 
 module Jose.Types
@@ -104,7 +104,7 @@ data JweHeader = JweHeader {
   , jweKid :: Maybe KeyId
   } deriving (Eq, Show, Generic)
 
-newtype IntDate = IntDate POSIXTime deriving (Show, Eq, Ord)
+newtype IntDate = IntDate POSIXTime deriving (Show, Eq, Ord, Num)
 
 instance FromJSON IntDate where
     parseJSON = withScientific "IntDate" $ \n ->
