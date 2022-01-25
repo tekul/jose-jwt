@@ -155,7 +155,7 @@ data JwtError = KeyError Text      -- ^ No suitable key or wrong key type
               | BadAlgorithm Text  -- ^ The supplied algorithm is invalid
               | BadDots Int        -- ^ Wrong number of "." characters in the JWT
               | BadHeader Text     -- ^ Header couldn't be decoded or contains bad data
-              | BadClaims          -- ^ Claims part couldn't be decoded or contains bad data
+              | BadClaims String   -- ^ Claims part couldn't be decoded or contains bad data
               | BadSignature       -- ^ Signature is invalid
               | BadCrypto          -- ^ A cryptographic operation failed
               | Base64Error String -- ^ A base64 decoding error
