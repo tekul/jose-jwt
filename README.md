@@ -4,9 +4,9 @@ A Haskell implementation of the JSON Object Signing and Encryption (JOSE) specif
 
 ## Background
 
-The [JWT specification](https://tools.ietf.org/html/rfc7519) was split into [`JWS`](https://www.rfc-editor.org/rfc/rfc7515.html) and [`JWE`](https://www.rfc-editor.org/rfc/rfc7515.html) during its development and thus does not contain much. Basically, a JWT is either a JWS or a JWE depending on whether it is signed or encrypted. It is encoded as a sequence of base64 strings separated by '.' characters [1].
+The [JWT specification](https://tools.ietf.org/html/rfc7519) was split into [`JWS`](https://www.rfc-editor.org/rfc/rfc7515.html) and [`JWE`](https://www.rfc-editor.org/rfc/rfc7516.html) during its development so does not contain much. A JWT is either a JWS or a JWE depending on whether it is signed or encrypted. It is encoded as a sequence of base64 strings separated by '.' characters [1].
 
-Technically, the content of a JWT should be JSON (unless it's a nested JWT), but the library doesn't care - it only requires a bytestring. The calling application should verify that the content is valid. Exactly what that means will depend on what you are using JWTs for.
+Technically, the content of a JWT should be JSON (unless it's a nested JWT), but this library doesn't care - it only requires a bytestring. The application should verify that the content is valid. Exactly what that means will depend on what you are using JWTs for.
 
 ## Examples
 
