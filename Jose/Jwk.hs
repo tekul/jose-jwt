@@ -30,11 +30,11 @@ import qualified Crypto.PubKey.Ed448 as Ed448
 import qualified Crypto.PubKey.ECC.Types as ECC
 import           Crypto.Number.Serialize
 import           Data.Aeson (fromJSON, genericToJSON, Object, Result(..), Value(..), FromJSON(..), ToJSON(..), withText)
+import qualified Data.Aeson.KeyMap as KM
 import           Data.Aeson.Types (Parser, Options (..), defaultOptions)
 import qualified Data.ByteArray as BA
 import           Data.ByteString (ByteString)
 import qualified Data.ByteString as B
-import qualified Data.HashMap.Strict as H
 import           Data.Maybe (isNothing, fromMaybe)
 import           Data.Text (Text)
 import qualified Data.Text.Encoding as TE
@@ -305,10 +305,10 @@ parseJwk k =
                 Right jwk -> return jwk
         _ -> pure (UnsupportedJwk k)
   where
-    algValue = fromMaybe Null (H.lookup "alg" k)
+    algValue = fromMaybe Null (KM.lookup "alg" k)
     -- kty is required so if it's missing here we do nothing and allow decoding to fail
     -- later
-    ktyValue = fromMaybe Null (H.lookup "kty" k)
+    ktyValue = fromMaybe Null (KM.lookup "kty" k)
     checkAlg = fromJSON algValue :: Result (Maybe Alg)
     checkKty = fromJSON ktyValue :: Result (Maybe KeyType)
 

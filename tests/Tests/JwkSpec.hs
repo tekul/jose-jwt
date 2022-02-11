@@ -6,8 +6,8 @@ import Test.Hspec
 import Test.HUnit hiding (Test)
 
 import Data.Aeson
+import qualified Data.Aeson.KeyMap as KM
 import qualified Data.ByteString.Char8 as B
-import qualified Data.HashMap.Strict as H
 import Data.Word (Word64)
 import qualified Data.Vector as V
 import Crypto.PubKey.ECC.ECDSA
@@ -73,10 +73,10 @@ spec = do
             assertBool "Different keys should be unequal" (k0 /= k1)
 
     describe "Errors in JWK data" $ do
-        let Just (Array ks) = H.lookup "keys" keySet
+        let Just (Array ks) = KM.lookup "keys" keySet
             Object k0obj = V.head ks
         it "invalid Base64 returns an error" $ do
-            let result = fromJSON (Object $ H.insert "n" (String "NotBase64**") k0obj) :: Result Jwk
+            let result = fromJSON (Object $ KM.insert "n" (String "NotBase64**") k0obj) :: Result Jwk
             case result of
                 Error _ -> assertBool "" True
                 _       -> assertFailure "Expected an error for invalid base 64"
