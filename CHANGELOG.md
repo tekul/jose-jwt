@@ -1,3 +1,9 @@
+0.9.3
+-----
+
+* Add upper bound < 1.6 for aeson dependency
+* Add Num Instance for IntDate
+
 0.9.2
 -----
 
