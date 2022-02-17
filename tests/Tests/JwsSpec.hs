@@ -64,8 +64,8 @@ spec = do
            let Right (_, claims) = decodeClaims a21 :: Either JwtError (JwtHeader, JwtClaims)
            jwtIss claims @?= Just "joe"
 
-        it "eitherDecodeClaims raises the right error upon parsing failure" $ do
-           let Left (BadClaims err) = eitherDecodeClaims a21JSONArray :: Either JwtError (JwtHeader, JwtClaims)
+        it "raises the right error upon parsing failure" $ do
+           let Left (BadClaims err) = decodeClaims a21JSONArray :: Either JwtError (JwtHeader, JwtClaims)
            err @?= "Error in $: JwtClaims must be an object"
 
         it "encodes the payload to the expected JWT" $ do
