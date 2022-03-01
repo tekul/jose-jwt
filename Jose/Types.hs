@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, DeriveGeneric, FlexibleContexts, GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE OverloadedStrings, DeriveGeneric, FlexibleContexts, GeneralizedNewtypeDeriving, CPP #-}
 {-# OPTIONS_HADDOCK prune #-}
 
 module Jose.Types
@@ -23,10 +23,14 @@ module Jose.Types
 where
 
 import Data.Aeson
+#if MIN_VERSION_aeson(2,0,0)
+import Data.Aeson.KeyMap as KM
+#else
+import qualified Data.HashMap.Strict as H
+#endif
 import Data.Char (toUpper, toLower)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as BL
-import qualified Data.HashMap.Strict as H
 import Data.Int (Int64)
 import Data.Time.Clock (UTCTime)
 import Data.Time.Clock.POSIX
@@ -126,8 +130,13 @@ data JwtClaims = JwtClaims
 
 -- Deal with the case where "aud" may be a single value rather than an array
 instance FromJSON JwtClaims where
+#if MIN_VERSION_aeson(2,0,0)
+    parseJSON v@(Object o) = case KM.lookup "aud" o of
+        Just (a@(String _)) -> genericParseJSON claimsOptions $ Object $ KM.insert "aud" (Array $ Data.Vector.singleton a) o
+#else
     parseJSON v@(Object o) = case H.lookup "aud" o of
         Just (a@(String _)) -> genericParseJSON claimsOptions $ Object $ H.insert "aud" (Array $ singleton a) o
+#endif
         _                   -> genericParseJSON claimsOptions v
     parseJSON _            = fail "JwtClaims must be an object"
 
@@ -174,9 +183,15 @@ instance FromJSON JweHeader where
     parseJSON = genericParseJSON jweOptions
 
 instance FromJSON JwtHeader where
+#if MIN_VERSION_aeson(2,0,0)
+    parseJSON v@(Object o) = case KM.lookup "alg" o of
+        Just (String "none") -> pure UnsecuredH
+        _                    -> case KM.lookup "enc" o of
+#else
     parseJSON v@(Object o) = case H.lookup "alg" o of
         Just (String "none") -> pure UnsecuredH
         _                    -> case H.lookup "enc" o of
+#endif
             Nothing -> JwsH <$> parseJSON v
             _       -> JweH <$> parseJSON v
     parseJSON _            = fail "JwtHeader must be an object"
