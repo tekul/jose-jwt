@@ -33,7 +33,7 @@ import Control.Monad.Trans.Except
 import qualified Crypto.PubKey.ECC.ECDSA as ECDSA
 import Crypto.PubKey.RSA (PrivateKey(..))
 import Crypto.Random (MonadRandom)
-import Data.Aeson (decodeStrict',FromJSON)
+import Data.Aeson (eitherDecodeStrict', FromJSON)
 import Data.ByteString (ByteString)
 import Data.Maybe (isNothing)
 import qualified Data.ByteString.Char8 as BC
@@ -60,8 +60,8 @@ encode :: MonadRandom m
 encode jwks encoding msg = runExceptT $ case encoding of
     JwsEncoding None -> case msg of
         Claims p -> return $ Jwt $ BC.intercalate "." [unsecuredHdr, B64.encode p]
-        Nested _ -> throwE BadClaims
-    JwsEncoding a    -> case filter (canEncodeJws a) jwks of
+        Nested _ -> throwE $ BadClaims "A JWS can't contain a nested JWT"
+    JwsEncoding a -> case filter (canEncodeJws a) jwks of
         []    -> throwE (KeyError "No matching key found for JWS algorithm")
         (k:_) -> ExceptT . return =<< lift (Jws.jwkEncode a k msg)
     JweEncoding a e -> case filter (canEncodeJwe a) jwks of
@@ -145,4 +145,6 @@ decodeClaims jwt = do
     claims <- B64.decode ((head . tail) components) >>= parseClaims
     return (hdr, claims)
   where
-    parseClaims bs = maybe (Left BadClaims) Right $ decodeStrict' bs
+    parseClaims bs = case eitherDecodeStrict' bs of
+      Left err -> Left $ BadClaims err
+      Right res -> return res

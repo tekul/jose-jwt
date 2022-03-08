@@ -1,3 +1,9 @@
+1.0
+-----
+
+* Add an error message to `BadClaims`
+* Use `eitherDecodeStrict'` in `decodeClaims`
+
 0.9.3
 -----
 
