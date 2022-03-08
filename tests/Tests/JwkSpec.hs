@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, CPP #-}
 
 module Tests.JwkSpec where
 
@@ -6,8 +6,12 @@ import Test.Hspec
 import Test.HUnit hiding (Test)
 
 import Data.Aeson
-import qualified Data.ByteString.Char8 as B
+#if MIN_VERSION_aeson(2,0,0)
+import qualified Data.Aeson.KeyMap as KM
+#else
 import qualified Data.HashMap.Strict as H
+#endif
+import qualified Data.ByteString.Char8 as B
 import Data.Word (Word64)
 import qualified Data.Vector as V
 import Crypto.PubKey.ECC.ECDSA
@@ -73,10 +77,18 @@ spec = do
             assertBool "Different keys should be unequal" (k0 /= k1)
 
     describe "Errors in JWK data" $ do
+#if MIN_VERSION_aeson(2,0,0)
+        let Just (Array ks) = KM.lookup "keys" keySet
+#else
         let Just (Array ks) = H.lookup "keys" keySet
+#endif
             Object k0obj = V.head ks
         it "invalid Base64 returns an error" $ do
+#if MIN_VERSION_aeson(2,0,0)
+            let result = fromJSON (Object $ KM.insert "n" (String "NotBase64**") k0obj) :: Result Jwk
+#else
             let result = fromJSON (Object $ H.insert "n" (String "NotBase64**") k0obj) :: Result Jwk
+#endif
             case result of
                 Error _ -> assertBool "" True
                 _       -> assertFailure "Expected an error for invalid base 64"

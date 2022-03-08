@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, DeriveGeneric, RecordWildCards #-}
+{-# LANGUAGE OverloadedStrings, DeriveGeneric, RecordWildCards, CPP #-}
 {-# OPTIONS_HADDOCK prune #-}
 
 module Jose.Jwk
@@ -30,11 +30,15 @@ import qualified Crypto.PubKey.Ed448 as Ed448
 import qualified Crypto.PubKey.ECC.Types as ECC
 import           Crypto.Number.Serialize
 import           Data.Aeson (fromJSON, genericToJSON, Object, Result(..), Value(..), FromJSON(..), ToJSON(..), withText)
+#if MIN_VERSION_aeson(2,0,0)
+import qualified Data.Aeson.KeyMap as KM
+#else
+import qualified Data.HashMap.Strict as H
+#endif
 import           Data.Aeson.Types (Parser, Options (..), defaultOptions)
 import qualified Data.ByteArray as BA
 import           Data.ByteString (ByteString)
 import qualified Data.ByteString as B
-import qualified Data.HashMap.Strict as H
 import           Data.Maybe (isNothing, fromMaybe)
 import           Data.Text (Text)
 import qualified Data.Text.Encoding as TE
@@ -305,10 +309,15 @@ parseJwk k =
                 Right jwk -> return jwk
         _ -> pure (UnsupportedJwk k)
   where
-    algValue = fromMaybe Null (H.lookup "alg" k)
+#if MIN_VERSION_aeson(2,0,0)
+    algValue = fromMaybe Null (KM.lookup "alg" k)
     -- kty is required so if it's missing here we do nothing and allow decoding to fail
     -- later
+    ktyValue = fromMaybe Null (KM.lookup "kty" k)
+#else
+    algValue = fromMaybe Null (H.lookup "alg" k)
     ktyValue = fromMaybe Null (H.lookup "kty" k)
+#endif
     checkAlg = fromJSON algValue :: Result (Maybe Alg)
     checkKty = fromJSON ktyValue :: Result (Maybe KeyType)
 
