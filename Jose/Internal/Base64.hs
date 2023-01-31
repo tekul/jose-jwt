@@ -1,11 +1,16 @@
-{-# LANGUAGE OverloadedStrings, FlexibleContexts #-}
+{-# LANGUAGE OverloadedStrings, FlexibleContexts, CPP #-}
 {-# OPTIONS_HADDOCK hide #-}
 
 -- | JWT-style base64 encoding and decoding
 
 module Jose.Internal.Base64 where
 
+#if MIN_VERSION_mtl(2,2,1)
+import Control.Monad.Except
+#else
 import Control.Monad.Error
+#endif
+
 import Data.ByteArray
 import Data.ByteArray.Encoding
 
