@@ -17,7 +17,7 @@ Maintainer:         Luke Taylor <tekul.hs@gmail.com>
 License:            BSD3
 License-File:       LICENSE
 Build-Type:         Simple
-Cabal-Version:      >= 1.16
+Cabal-Version:      1.16
 Category:           JSON, Cryptography
 
 Extra-Source-Files:
