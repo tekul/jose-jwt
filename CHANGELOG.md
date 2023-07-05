@@ -1,3 +1,8 @@
+0.9.6
+-----
+
+* Updated aeson package bound to include 2.2
+
 0.9.5
 -----
 
