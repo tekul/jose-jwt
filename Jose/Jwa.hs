@@ -7,7 +7,6 @@ module Jose.Jwa
     , JwsAlg (..)
     , JweAlg (..)
     , Enc (..)
-    , encName
     )
 where
 
