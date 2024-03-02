@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# OPTIONS_GHC -fno-warn-missing-signatures -fno-warn-orphans #-}
+{-# OPTIONS_GHC -fno-warn-missing-signatures -fno-warn-orphans -fno-warn-incomplete-uni-patterns #-}
 
 module Tests.JweSpec where
 

@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# OPTIONS_GHC -fno-warn-missing-signatures #-}
+{-# OPTIONS_GHC -fno-warn-missing-signatures -fno-warn-incomplete-uni-patterns #-}
 
 module Tests.JwsSpec where
 

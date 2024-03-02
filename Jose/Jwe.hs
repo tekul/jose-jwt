@@ -140,12 +140,13 @@ doEncode :: (MonadRandom m, ByteArray ba)
     -> ExceptT JwtError m Jwt
 doEncode hdr e encryptKey claims = do
     (cmk, iv) <- lift (generateCmkAndIV e)
-    let Just (AuthTag sig, ct) = encryptPayload e cmk iv aad claims
+    let aad = B64.encode hdr
+        (signature, ciphertext) = case encryptPayload e cmk iv aad claims of
+                        Just (AuthTag sig, ct) -> (sig, ct)
+                        Nothing -> error "encryptPayload failed! Shouldn't happen with valid key and iv"
     jweKey <- encryptKey cmk
-    let jwe = B.intercalate "." $ map B64.encode [hdr, jweKey, BA.convert iv, BA.convert ct, BA.convert sig]
+    let jwe = B.intercalate "." $ map B64.encode [hdr, jweKey, BA.convert iv, BA.convert ciphertext, BA.convert signature]
     return (Jwt jwe)
-  where
-    aad = B64.encode hdr
 
 -- | Creates a JWE with the content key encoded using RSA.
 rsaEncode :: MonadRandom m

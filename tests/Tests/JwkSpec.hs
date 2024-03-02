@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings, CPP #-}
+{-# OPTIONS_GHC -fno-warn-incomplete-uni-patterns #-}
 
 module Tests.JwkSpec where
 

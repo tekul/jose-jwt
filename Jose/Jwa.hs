@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_HADDOCK prune #-}
+{-# OPTIONS_GHC -fno-warn-incomplete-uni-patterns #-}
 
 module Jose.Jwa
     ( Alg (..)
