@@ -1,3 +1,8 @@
+0.10.0
+------
+
+* Change to using crypton (see #41).
+
 0.9.6
 -----
 
