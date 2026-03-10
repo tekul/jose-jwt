@@ -9,7 +9,12 @@
       systems = nixpkgs.lib.systems.flakeExposed;
       imports = [ inputs.haskell-flake.flakeModule ];
 
-      perSystem = { self', pkgs, ... }: {
+      perSystem = { self', pkgs, ... }: 
+        let
+          inherit (pkgs.haskell.lib)
+            overrideCabal doJailbreak dontCheck dontHaddock justStaticExecutables;
+        in
+        {
 
         # Typically, you just want a single project named "default". But
         # multiple projects are also possible, each using different GHC version.
@@ -25,9 +30,22 @@
           # (defined by `defaults.packages` option).
           #
           packages = {
-            # aeson.source = "1.5.0.0";      # Override aeson to a custom version from Hackage
-            # shower.source = inputs.shower; # Override shower to a custom source path
+            # This doesn't seem to work since ram isn't in nixpkgs?
+            # It works using the otherOverlays code below.
+            # ram.source = "0.22.0";
           };
+
+          otherOverlays = [
+            (hself: hsuper: {
+                ram = (hself.callHackageDirect {
+                  pkg = "ram";
+                  ver = "0.22.0";
+                  sha256 = "sha256-Z7PnMu61TG/e9QEylTJQC68YAkltCufP3FD4oOBDj9c=";
+                } { });
+            })
+
+          ];
+
           settings = {
             #  aeson = {
             #    check = false;

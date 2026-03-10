@@ -1,3 +1,8 @@
+0.11.0
+------
+
+* Update `crypton` version to >= 1.1.0 and replace the `memory` package with the `ram` package to match `crypton` changes.
+
 0.10.0
 ------
 
