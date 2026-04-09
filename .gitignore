@@ -1,6 +1,7 @@
 .cabal-sandbox
 .stack-work/
 cabal.sandbox.config
+cabal.project.freeze
 .ghc.environment*
 *.swp
 dist/
@@ -14,4 +15,3 @@ result
 *.aux
 *.hp
 tags
-

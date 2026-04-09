@@ -1,3 +1,8 @@
+0.11.0
+------
+
+* Switch to `crypton` >= 1.1.0 and replace the `memory` package with the `ram` package.
+
 0.10.0
 ------
 
