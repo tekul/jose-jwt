@@ -90,23 +90,30 @@ decode :: MonadRandom m
 decode keySet encoding jwt = runExceptT $ do
     decodableJwt <- ExceptT (return (P.parseJwt jwt))
 
-    decodings <- case (decodableJwt, encoding) of
-        (P.Unsecured p, Just (JwsEncoding None)) -> return [Just (Unsecured p)]
+    decoded <- case (decodableJwt, encoding) of
+        (P.Unsecured p, Just (JwsEncoding None)) -> return (Just (Unsecured p))
         (P.Unsecured _, _) -> throwE (BadAlgorithm "JWT is unsecured but expected 'alg' was not 'none'")
         (P.DecodableJws hdr _ _ _, e) -> do
             unless (isNothing e || e == Just (JwsEncoding (jwsAlg hdr))) $
                 throwE (BadAlgorithm "Expected 'alg' doesn't match JWS header")
             ks <- checkKeys $ filter (canDecodeJws hdr) keySet
-            mapM decodeWithJws ks
+            tryJwsKeys ks
         (P.DecodableJwe hdr _ _ _ _ _, e) -> do
             unless (isNothing e || e == Just (JweEncoding (jweAlg hdr) (jweEnc hdr))) $
                 throwE (BadAlgorithm "Expected encoding doesn't match JWE header")
             ks <- checkKeys $ filter (canDecodeJwe hdr) keySet
-            mapM decodeWithJwe ks
-    case msum decodings of
+            msum <$> (mapM decodeWithJwe ks)
+    case decoded of
         Nothing  -> throwE $ KeyError "None of the keys was able to decode the JWT"
         Just jwtContent -> return jwtContent
   where
+    tryJwsKeys [] = return Nothing
+    tryJwsKeys (k:ks) = do
+        tried <- decodeWithJws k
+        case tried of
+            Just content -> return (Just content)
+            Nothing -> tryJwsKeys ks
+
     decodeWithJws :: MonadRandom m => Jwk -> ExceptT JwtError m (Maybe JwtContent)
     decodeWithJws k = either (const $ return Nothing) (return . Just . Jws) $ case k of
         Ed25519PublicJwk kPub _ -> Jws.ed25519Decode kPub jwt
